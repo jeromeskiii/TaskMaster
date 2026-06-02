@@ -1,0 +1,50 @@
+# ArXiv Keywords
+recurrent depth transformer
+looped transformer
+RDT transformer
+recurrent neural network transformer
+looping transformer architecture
+LTI stable transformer
+spectral radius transformer
+stability recurrent transformer
+mixture of experts transformer
+MoE transformer
+sparse MoE
+expert routing transformer
+multi-latent attention
+MLA attention
+latent attention
+compressed KV cache
+KV cache compression
+adaptive computation time
+ACT transformer
+halting transformer
+dynamic depth transformer
+early exit transformer
+
+# GitHub Keywords
+recurrent-depth
+looped-transformer
+RDT
+LTI-stable
+spectral-radius
+mixture-of-experts
+MoE
+multi-latent-attention
+MLA
+adaptive-computation
+ACT
+halting-mechanism
+loop-transformer
+recurrent-block
+
+# Additional Tracking
+PonderNet
+adaptive-computation-time
+Universal Transformer
+AdaTape
+DeepSeek-V3
+LoopFormer
+state space model
+retentive network
+RetNet

@@ -1,0 +1,62 @@
+# Logos Research Agent Configuration
+# Place in: /Users/ohmskiii/Documents/GitHub/logos/.vibe/skills/logos-research/config.toml
+
+[agent]
+name = "logos-research"
+check_interval = 24  # hours between checks
+max_papers_per_run = 50
+min_relevance = 0.7  # 0-1 scale, only Medium+ items are kept
+
+[monitoring]
+arxiv_enabled = true
+arxiv_query = [
+    "recurrent depth transformer",
+    "looped transformer",
+    "RDT transformer",
+    "LTI stable transformer",
+    "spectral radius transformer",
+    "mixture of experts transformer",
+    "multi-latent attention",
+    "MLA attention",
+    "adaptive computation time",
+    "ACT halting transformer",
+]
+
+github_enabled = true
+github_query = [
+    "recurrent-depth",
+    "looped-transformer",
+    "RDT",
+    "LTI-stable",
+    "spectral-radius",
+    "mixture-of-experts",
+    "multi-latent-attention",
+    "adaptive-computation",
+]
+
+# RSS feeds to monitor
+feeds = [
+    "https://marktechpost.com/feed/",
+    "https://www.emergentmind.com/feed/",
+]
+
+[output]
+digest_format = "markdown"
+digest_path = ".vibe/skills/logos-research/digests/"
+digest_frequency = "daily"
+
+[integration]
+logos_path = "/Users/ohmskiii/Documents/GitHub/logos"
+auto_pr = false  # Set to true to auto-create PRs with findings
+notification_webhook = null  # e.g., Discord/Slack webhook URL
+
+[logging]
+log_file = ".vibe/skills/logos-research/monitor.log"
+log_level = "INFO"  # DEBUG, INFO, WARNING, ERROR
+
+[api_keys]
+# Uncomment and set if using API-based arXiv access
+# arxiv_api_key = ""
+
+# GitHub token (optional, for higher rate limits)
+# github_token = ""

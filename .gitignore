@@ -1,0 +1,24 @@
+# Caches
+.taskmaster_cache/
+.openskills_cache/
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+
+# Harness validation (auto-generated)
+.harness/
+
+# Backups
+*.bak
+*.tmp
+
+# Node
+node_modules/
