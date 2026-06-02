@@ -1,0 +1,51 @@
+name: TaskMaster CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Validate Skills
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate all skills
+        run: python3 taskmaster.py validate
+
+      - name: Run tests
+        run: python3 -m unittest discover -s tests -v
+
+  quality:
+    name: Quality Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check skill quality
+        run: python3 taskmaster.py quality
+
+      - name: Verify index is current
+        run: |
+          cp INDEX.md INDEX.md.bak
+          python3 taskmaster.py generate-index
+          diff INDEX.md INDEX.md.bak || {
+            echo "✗ INDEX.md is out of date. Run: python3 taskmaster.py generate-index"
+            exit 1
+          }
+          echo "✓ INDEX.md is up to date"

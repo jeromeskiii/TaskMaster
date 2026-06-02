@@ -106,8 +106,10 @@ def _read_cache() -> Optional[dict]:
 
 def _write_cache(data: dict) -> None:
     CACHE_DIR.mkdir(exist_ok=True)
-    with open(CACHE_FILE, "w") as f:
+    tmp = CACHE_FILE.with_suffix(".tmp")
+    with open(tmp, "w") as f:
         json.dump(data, f)
+    tmp.replace(CACHE_FILE)
 
 
 def get_all_skills(use_cache: bool = True) -> list[dict]:
