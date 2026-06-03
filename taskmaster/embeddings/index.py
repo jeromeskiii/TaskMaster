@@ -111,6 +111,7 @@ class EmbeddingIndex:
     def add(self, skill: dict[str, Any]) -> None:
         if not self._loaded:
             raise RuntimeError("Index must be loaded before incremental add()")
+        assert self._meta is not None
         text = build_skill_text(skill)
         vector = self._provider.embed([text])
         self._ensure_faiss().add(vector)
