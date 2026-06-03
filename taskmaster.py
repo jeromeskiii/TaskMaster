@@ -19,7 +19,6 @@ Usage:
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from collections import Counter
@@ -28,12 +27,14 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import Optional
 
-ROOT = Path(__file__).resolve().parent
-SKILLS_DIR = ROOT
+from taskmaster import corpus as _corpus
 
-CACHE_DIR = ROOT / ".taskmaster_cache"
-CACHE_FILE = CACHE_DIR / "skills_cache.json"
-CACHE_TTL = 300
+ROOT = Path(__file__).resolve().parent
+SKILLS_DIR = _corpus.SKILLS_DIR
+
+CACHE_DIR = _corpus.CACHE_DIR
+CACHE_FILE = _corpus.CACHE_FILE
+CACHE_TTL = _corpus.CACHE_TTL
 
 
 REQUIRED_FIELDS = ["name", "description", "category", "risk"]
@@ -49,85 +50,52 @@ MIN_LINES = 10
 MIN_DESC_LEN = 30
 
 
+SkillRecord = _corpus.SkillRecord
+UniqueKeyLoader = _corpus.UniqueKeyLoader
+
+
+def _record_to_dict(record):
+    return record.to_dict() if isinstance(record, SkillRecord) else record
+
+
 def parse_skill(dirpath: Path) -> Optional[dict]:
-    md_file = dirpath / "SKILL.md"
-    if not md_file.exists():
-        return None
-
-    text = md_file.read_text(encoding="utf-8")
-    fm, body, fm_valid = _parse_frontmatter(text)
-
-    size = len(text.encode("utf-8"))
-    lines = body.strip().split("\n") if body.strip() else []
-
-    return {
-        "dir": dirpath.name,
-        "path": str(md_file),
-        "frontmatter": fm,
-        "frontmatter_valid": fm_valid,
-        "body": body,
-        "line_count": len(lines),
-        "size_bytes": size,
-    }
+    return _record_to_dict(_corpus.parse_skill(dirpath))
 
 
-def _parse_frontmatter(text: str) -> tuple[dict, str, bool]:
-    if not text.startswith("---"):
-        return {}, text, False
-    idx = text.find("---", 3)
-    if idx == -1:
-        return {}, text, False
-    raw = text[3:idx].strip()
-    body = text[idx + 3:]
-    fm = {}
-    for line in raw.splitlines():
-        line = line.strip()
-        if ":" in line:
-            key, _, val = line.partition(":")
-            fm[key.strip()] = val.strip().strip('"').strip("'")
-    return fm, body, True
+def _parse_frontmatter(text: str) -> tuple[dict, str, bool, Optional[str]]:
+    return _corpus._parse_frontmatter(text)
 
 
 def _get_cache_age() -> float:
-    if not CACHE_FILE.exists():
-        return float("inf")
-    return (datetime.now(timezone.utc).timestamp() - CACHE_FILE.stat().st_mtime)
+    return _corpus._get_cache_age()
 
 
 def _read_cache() -> Optional[dict]:
-    if _get_cache_age() > CACHE_TTL:
-        return None
-    try:
-        with open(CACHE_FILE) as f:
-            return json.load(f)
-    except Exception:
-        return None
+    return _corpus._read_cache()
 
 
 def _write_cache(data: dict) -> None:
-    CACHE_DIR.mkdir(exist_ok=True)
-    tmp = CACHE_FILE.with_suffix(".tmp")
-    with open(tmp, "w") as f:
-        json.dump(data, f)
-    tmp.replace(CACHE_FILE)
+    _corpus._write_cache(data)
+
+
+def _flatten_text(value: object) -> str:
+    return _corpus._flatten_text(value)
+
+
+def _tokenize_text(value: object) -> set[str]:
+    return _corpus._tokenize_text(value)
+
+
+def _as_list(value: object) -> list[str]:
+    return _corpus._as_list(value)
+
+
+def _normalize_frontmatter_value(value: object) -> object:
+    return _corpus._normalize_frontmatter_value(value)
 
 
 def get_all_skills(use_cache: bool = True) -> list[dict]:
-    if use_cache:
-        cached = _read_cache()
-        if cached:
-            return cached["skills"]
-
-    skills = []
-    for d in sorted(SKILLS_DIR.iterdir()):
-        if not d.is_dir() or d.name.startswith("."):
-            continue
-        skill = parse_skill(d)
-        if skill:
-            skills.append(skill)
-
-    _write_cache({"skills": skills, "timestamp": datetime.now(timezone.utc).isoformat()})
-    return skills
+    return [_record_to_dict(skill) for skill in _corpus.get_all_skills(use_cache=use_cache)]
 
 
 def validate_skill(skill: dict) -> list[str]:
@@ -135,7 +103,7 @@ def validate_skill(skill: dict) -> list[str]:
     fm = skill["frontmatter"]
 
     if not skill["frontmatter_valid"]:
-        return ["missing YAML frontmatter"]
+        return [skill.get("frontmatter_error") or "missing YAML frontmatter"]
 
     for field in REQUIRED_FIELDS:
         if field not in fm or not fm[field]:
@@ -167,7 +135,8 @@ def validate_all() -> dict:
     issues = []
     stats = {k: 0 for k in [
         "total", "valid", "missing_frontmatter", "missing_required_fields",
-        "invalid_risk", "unknown_category", "skeleton_skills", "short_descriptions"
+        "invalid_risk", "unknown_category", "skeleton_skills", "short_descriptions",
+        "frontmatter_parse_errors",
     ]}
 
     for skill in skills:
@@ -175,7 +144,10 @@ def validate_all() -> dict:
         if skill_issues:
             issues.append({"dir": skill["dir"], "issue": "; ".join(skill_issues)})
             for issue in skill_issues:
-                if "frontmatter" in issue:
+                if not skill.get("frontmatter_valid") and skill.get("frontmatter_error"):
+                    stats["frontmatter_parse_errors"] += 1
+                    break
+                elif "frontmatter" in issue:
                     stats["missing_frontmatter"] += 1
                     break
                 elif "field" in issue:
@@ -184,10 +156,10 @@ def validate_all() -> dict:
                     stats["invalid_risk"] += 1
                 elif "category" in issue:
                     stats["unknown_category"] += 1
-                elif "small" in issue or "short" in issue:
-                    stats["skeleton_skills"] += 1
                 elif "description" in issue:
                     stats["short_descriptions"] += 1
+                elif "small" in issue or "short" in issue:
+                    stats["skeleton_skills"] += 1
         stats["total"] += 1
 
     stats["valid"] = stats["total"] - len(issues)
@@ -202,7 +174,7 @@ def search_skills(query: str, fuzzy: bool = True) -> list[dict]:
     for skill in skills:
         searchable = (
             skill["dir"] + " " +
-            " ".join(str(v) for v in skill["frontmatter"].values()) + " " +
+            " ".join(_flatten_text(v) for v in skill["frontmatter"].values()) + " " +
             skill["body"]
         ).lower()
 
@@ -221,7 +193,7 @@ def search_skills(query: str, fuzzy: bool = True) -> list[dict]:
             score += 8
         if q in fm.get("category", "").lower():
             score += 4
-        if q in fm.get("tags", "").lower():
+        if q in _flatten_text(fm.get("tags", "")).lower():
             score += 6
 
         body_words = set(re.findall(r'\w+', searchable))
@@ -240,42 +212,54 @@ def search_skills(query: str, fuzzy: bool = True) -> list[dict]:
 def suggest_skills(task: str, max_results: int = 5) -> list[dict]:
     suggestions = []
 
-    task_keywords = {
+    category_hints = {
         "web": ["frontend", "browser-automation"],
-        "api": ["backend", "api-patterns"],
+        "api": ["backend"],
         "database": ["backend", "data"],
         "security": ["security"],
         "cloud": ["cloud"],
-        "ai": ["ai", "ml"],
-        "test": ["testing", "quality"],
-        "deploy": ["devops", "automation"],
+        "ai": ["ai", "data-ai"],
         "frontend": ["frontend"],
         "backend": ["backend"],
         "data": ["data-ai"],
-        "code": ["development"],
-        "debug": ["debugging", "error-detective"],
-        "architecture": ["architecture"],
+    }
+    related_terms = {
+        "debug": {"bug", "bugs", "debugging", "troubleshooting"},
+        "test": {"test", "tests", "testing", "qa"},
+        "deploy": {"deploy", "deployment", "release", "shipping"},
+        "architecture": {"architecture", "architect"},
+        "api": {"api", "rest", "graphql", "endpoint"},
     }
 
     task_lower = task.lower()
+    task_terms = _tokenize_text(task_lower)
     matched_cats = set()
-    for keyword, cats in task_keywords.items():
-        if keyword in task_lower:
+    expanded_terms = set(task_terms)
+
+    for keyword, cats in category_hints.items():
+        if keyword in task_terms:
             matched_cats.update(cats)
+    for keyword, terms in related_terms.items():
+        if keyword in task_terms:
+            expanded_terms.update(terms)
 
     all_skills = get_all_skills()
     for skill in all_skills:
         fm = skill["frontmatter"]
         cat = fm.get("category", "")
         name = fm.get("name", skill["dir"])
+        name_terms = _tokenize_text(name)
+        searchable_terms = _tokenize_text(
+            f"{name} {fm.get('description', '')} {_flatten_text(fm.get('tags', []))} {skill['body']}"
+        )
 
         relevance = 0
         if cat in matched_cats:
             relevance += 5
-        if any(kw in name.lower() for kw in task_lower.split()):
+        if name_terms & expanded_terms:
             relevance += 8
-        if any(kw in fm.get("description", "").lower() for kw in task_lower.split()):
-            relevance += 3
+        overlap = searchable_terms & expanded_terms
+        relevance += min(len(overlap) * 2, 8)
 
         if relevance > 0:
             skill["relevance"] = relevance
@@ -338,10 +322,12 @@ def export_skills(as_json: bool = False, skill_name: Optional[str] = None) -> st
             "risk": fm.get("risk", "?"),
             "description": fm.get("description", ""),
             "source": fm.get("source", ""),
-            "tags": fm.get("tags", "").split() if fm.get("tags") else [],
+            "tags": _as_list(fm.get("tags")),
             "path": s["path"],
             "size_bytes": s["size_bytes"],
             "line_count": s["line_count"],
+            "frontmatter_valid": s.get("frontmatter_valid", False),
+            "frontmatter_error": s.get("frontmatter_error"),
         })
 
     if as_json:
@@ -350,7 +336,10 @@ def export_skills(as_json: bool = False, skill_name: Optional[str] = None) -> st
         lines = ["# TaskMaster Export", f"# {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", f"# Total: {len(skill_data)} skills\n"]
         for s in skill_data:
             lines.append(f"## {s['name']} ({s['category']}) - {s['risk']}")
-            lines.append(f"{s['description'][:200]}...")
+            if s["frontmatter_valid"]:
+                lines.append(f"{s['description'][:200]}...")
+            else:
+                lines.append(f"Frontmatter parse error: {s['frontmatter_error']}")
             lines.append(f"- Path: {s['path']}")
             lines.append("")
         return "\n".join(lines)
@@ -368,6 +357,11 @@ def diff_skill(skill_dir: str) -> str:
     fm = skill["frontmatter"]
     lines = [f"=== {skill_dir} ===", ""]
 
+    if not skill["frontmatter_valid"]:
+        lines.append("--- Frontmatter Error ---")
+        lines.append(f"  {skill.get('frontmatter_error') or 'missing YAML frontmatter'}")
+        lines.append("")
+
     lines.append("--- Required Fields ---")
     for field in REQUIRED_FIELDS:
         status = "✓" if fm.get(field) else "✗ MISSING"
@@ -376,7 +370,8 @@ def diff_skill(skill_dir: str) -> str:
     lines.append("\n--- Optional Fields ---")
     for field in ["source", "date_added", "tags"]:
         val = fm.get(field, "")
-        lines.append(f"  {field}: {val if val else '(not set)'}")
+        formatted = ", ".join(_as_list(val)) if field == "tags" else val
+        lines.append(f"  {field}: {formatted if formatted else '(not set)'}")
 
     lines.append("\n--- Quality Metrics ---")
     quality = score_skill_quality(skill)
@@ -410,6 +405,7 @@ def print_validation_report(report: dict, json_out: bool = False) -> int:
     for key, label in [
         ("missing_frontmatter", "Missing frontmatter"),
         ("missing_required_fields", "Missing required fields"),
+        ("frontmatter_parse_errors", "Frontmatter parse errors"),
         ("invalid_risk", "Invalid risk values"),
         ("unknown_category", "Unknown categories"),
         ("skeleton_skills", "Skeleton/short skills"),

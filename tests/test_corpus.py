@@ -4,7 +4,9 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -93,3 +95,28 @@ class TestCorpusIntegration(unittest.TestCase):
         for skill in skills:
             self.assertIsInstance(skill, SkillRecord)
             self.assertTrue(skill.path.endswith("SKILL.md"))
+
+
+class TestTaskmasterScriptDelegation(unittest.TestCase):
+    def test_taskmaster_script_get_all_skills_delegates_to_corpus_module(self):
+        script_path = Path(__file__).resolve().parent.parent / "taskmaster.py"
+        spec = spec_from_file_location("taskmaster_script_for_test", script_path)
+        module = module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+
+        record = SkillRecord(
+            dir="foo",
+            path="foo/SKILL.md",
+            frontmatter={"name": "foo"},
+            frontmatter_valid=True,
+            frontmatter_error=None,
+            body="# Body\n",
+            line_count=1,
+            size_bytes=10,
+        )
+        with patch.object(corpus, "get_all_skills", return_value=[record]) as mock_get_all:
+            skills = module.get_all_skills(use_cache=False)
+
+        mock_get_all.assert_called_once_with(use_cache=False)
+        self.assertEqual(skills, [record.to_dict()])
