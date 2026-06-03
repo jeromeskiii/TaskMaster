@@ -108,106 +108,21 @@ def validate_all() -> dict:
 
 
 def search_skills(query: str, fuzzy: bool = True) -> list[dict]:
-    skills = get_all_skills()
-    q = query.lower().strip()
-    results = []
+    from taskmaster import discovery as _discovery
 
-    for skill in skills:
-        searchable = (
-            skill["dir"] + " " +
-            " ".join(_flatten_text(v) for v in skill["frontmatter"].values()) + " " +
-            skill["body"]
-        ).lower()
-
-        score = 0
-        name = skill["dir"]
-        fm = skill["frontmatter"]
-
-        if q in name.lower():
-            score += 20
-        elif fuzzy:
-            matches = get_close_matches(q, [name.lower()], n=1, cutoff=0.6)
-            if matches:
-                score += 10
-
-        if q in fm.get("description", "").lower():
-            score += 8
-        if q in fm.get("category", "").lower():
-            score += 4
-        if q in _flatten_text(fm.get("tags", "")).lower():
-            score += 6
-
-        body_words = set(re.findall(r'\w+', searchable))
-        query_words = set(re.findall(r'\w+', q))
-        overlap = len(body_words & query_words)
-        score += min(overlap * 0.5, 10)
-
-        if score > 0:
-            skill["relevance"] = score
-            results.append(skill)
-
-    results.sort(key=lambda s: s["relevance"], reverse=True)
-    return results
+    return _discovery.search_skills(get_all_skills(), query, fuzzy=fuzzy)
 
 
 def suggest_skills(task: str, max_results: int = 5) -> list[dict]:
-    suggestions = []
+    from taskmaster import discovery as _discovery
 
-    category_hints = {
-        "web": ["frontend", "browser-automation"],
-        "api": ["backend"],
-        "database": ["backend", "data"],
-        "security": ["security"],
-        "cloud": ["cloud"],
-        "ai": ["ai", "data-ai"],
-        "frontend": ["frontend"],
-        "backend": ["backend"],
-        "data": ["data-ai"],
-    }
-    related_terms = {
-        "debug": {"bug", "bugs", "debugging", "troubleshooting"},
-        "test": {"test", "tests", "testing", "qa"},
-        "deploy": {"deploy", "deployment", "release", "shipping"},
-        "architecture": {"architecture", "architect"},
-        "api": {"api", "rest", "graphql", "endpoint"},
-    }
+    return _discovery.suggest_skills(get_all_skills(), task, max_results=max_results)
 
-    task_lower = task.lower()
-    task_terms = _tokenize_text(task_lower)
-    matched_cats = set()
-    expanded_terms = set(task_terms)
 
-    for keyword, cats in category_hints.items():
-        if keyword in task_terms:
-            matched_cats.update(cats)
-    for keyword, terms in related_terms.items():
-        if keyword in task_terms:
-            expanded_terms.update(terms)
+def related_skills(skill_ref: str, max_results: int = 5) -> list[dict]:
+    from taskmaster import discovery as _discovery
 
-    all_skills = get_all_skills()
-    for skill in all_skills:
-        fm = skill["frontmatter"]
-        cat = fm.get("category", "")
-        name = fm.get("name", skill["dir"])
-        name_terms = _tokenize_text(name)
-        searchable_terms = _tokenize_text(
-            f"{name} {fm.get('description', '')} {_flatten_text(fm.get('tags', []))} {skill['body']}"
-        )
-
-        relevance = 0
-        if cat in matched_cats:
-            relevance += 5
-        if name_terms & expanded_terms:
-            relevance += 8
-        overlap = searchable_terms & expanded_terms
-        relevance += min(len(overlap) * 2, 8)
-
-        if relevance > 0:
-            skill["relevance"] = relevance
-            suggestions.append(skill)
-
-    suggestions.sort(key=lambda s: s["relevance"], reverse=True)
-    return suggestions[:max_results]
+    return _discovery.related_skills(get_all_skills(), skill_ref, max_results=max_results)
 
 
 def score_skill_quality(skill: dict) -> dict:
@@ -360,8 +275,10 @@ def print_search_results(results: list[dict], show_scores: bool = True) -> None:
     print(f"\n{'Skill':<35} {'Category':<22} {'Risk':<8} {'Match'}")
     print("-" * 80)
     for s in results:
-        fm = s["frontmatter"]
-        name = fm.get("name", s["dir"])[:34]
+        skill = s.get("skill", s)
+        fm = skill["frontmatter"] if isinstance(skill, dict) else skill.frontmatter
+        skill_dir = skill["dir"] if isinstance(skill, dict) else skill.dir
+        name = fm.get("name", skill_dir)[:34]
         cat = fm.get("category", "?")[:21]
         risk = fm.get("risk", "?")[:7]
         if show_scores:

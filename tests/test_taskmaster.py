@@ -165,11 +165,13 @@ class TestSearchSkills(unittest.TestCase):
     def test_search_by_name(self):
         results = tm.search_skills("postgres")
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["dir"], "postgres-skill")
+        self.assertEqual(results[0]["skill"].dir, "postgres-skill")
+        self.assertIn("name term match", results[0]["reasons"])
 
     def test_search_by_description(self):
         results = tm.search_skills("optimization")
-        self.assertTrue(any(r["dir"] == "postgres-skill" for r in results))
+        self.assertTrue(any(r["skill"].dir == "postgres-skill" for r in results))
+        self.assertTrue(any("description overlap" in r["reasons"] for r in results))
 
     def test_fuzzy_search(self):
         results = tm.search_skills("postgrsql")
@@ -252,11 +254,12 @@ class TestSuggestSkills(unittest.TestCase):
     def test_debug_queries_match_development_skills(self):
         results = tm.suggest_skills("debug production issue")
         self.assertGreaterEqual(len(results), 1)
-        self.assertEqual(results[0]["dir"], "bug-hunter")
+        self.assertEqual(results[0]["skill"].dir, "bug-hunter")
+        self.assertIn("name term match", results[0]["reasons"])
 
     def test_unrelated_development_skill_is_not_suggested_for_debug_query(self):
         results = tm.suggest_skills("debug production issue")
-        ranked = [result["dir"] for result in results]
+        ranked = [result["skill"].dir for result in results]
         self.assertEqual(ranked[0], "bug-hunter")
         self.assertNotIn("blockchain-developer", ranked)
 
