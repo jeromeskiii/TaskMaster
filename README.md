@@ -133,6 +133,52 @@ python3 taskmaster.py check my-new-skill
 python3 taskmaster.py generate-index
 ```
 
+## Phase 1 — Agent-Native Engine
+
+The 269-skill catalog now ships with a hybrid recommender, a dependency-graph composer, and a pluggable embedding system. Three new CLI subcommands are available:
+
+```bash
+# Build (or rebuild) the embedding index. Uses sentence-transformers locally
+# by default; set OPENAI_API_KEY and install the openai extra to use OpenAI.
+python3 taskmaster.py embed
+python3 taskmaster.py embed --rebuild
+
+# Recommend the top-K skills for a free-form task.
+python3 taskmaster.py recommend "debug a postgres deadlock" --max 5
+python3 taskmaster.py recommend "design a multi-tenant API" --json
+
+# Compose a topologically ordered plan from a set of skills.
+python3 taskmaster.py compose postgres-tuning error-detective --json
+```
+
+The recommender combines semantic similarity (0.55), keyword overlap (0.30), and tag overlap (0.15). When the embedding extra is not installed, it falls back to keyword-only and tags every result with `degraded: true` so the caller can see the lower-quality mode.
+
+The composer reads the optional `depends_on` frontmatter list, returns a topologically ordered plan, and surfaces missing dependencies with closest-match suggestions. Cycles raise an error.
+
+### Optional Frontmatter Fields
+
+| Field | Type | Semantics |
+|---|---|---|
+| `depends_on` | list[string] | Skills that must load first (used by `compose`). |
+| `composes_with` | list[string] | Skills commonly used together (used by `recommend`). |
+
+These fields are optional. Existing skills that omit them continue to validate and behave as before.
+
+### Installation
+
+The base install (`pip install taskmaster`) requires no new dependencies. To enable semantic search:
+
+```bash
+pip install "taskmaster[semantic]"
+```
+
+For OpenAI-backed embeddings:
+
+```bash
+pip install "taskmaster[semantic,openai]"
+export OPENAI_API_KEY=...
+```
+
 ## License
 
 MIT — see LICENSE file.
