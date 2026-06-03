@@ -32,3 +32,13 @@ def test_get_default_provider_returns_provider():
     p = get_default_provider()
     assert isinstance(p, EmbeddingProvider)
     assert p.model_id  # non-empty
+
+
+def test_sentence_transformer_provider_lazy_load():
+    from taskmaster.embeddings._sentence_transformer_provider import (
+        SentenceTransformerProvider,
+    )
+    p = SentenceTransformerProvider()
+    assert p.name == "sentence-transformers"
+    assert p.dim > 0
+    assert p.model_id.startswith("sentence-transformers/")
