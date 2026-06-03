@@ -35,6 +35,28 @@ python3 taskmaster.py quality
 python3 taskmaster.py export --json > skills.json
 ```
 
+## Python API
+
+Validation, quality scoring, and corpus hygiene analysis now live in `taskmaster.validation`.
+
+```python
+from taskmaster.corpus import get_all_skills
+from taskmaster.validation import (
+    build_hygiene_report,
+    build_normalization_report,
+    score_skill_quality,
+    validate_all,
+)
+
+skills = get_all_skills()
+validation = validate_all(skills)
+hygiene = build_hygiene_report(skills)
+normalization = build_normalization_report(skills)
+quality = score_skill_quality(skills[0])
+```
+
+`build_hygiene_report()` surfaces duplicate names, near-duplicate descriptions, tag-shape inconsistencies, parse-error rollups, and category/risk anomaly counts. `build_normalization_report()` proposes canonical metadata cleanups such as converting scalar tag strings into normalized tag lists.
+
 ## Structure
 
 Each skill lives in its own directory:

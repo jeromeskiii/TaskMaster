@@ -14,6 +14,7 @@ def _load_legacy_module() -> None:
 _load_legacy_module()
 
 from . import corpus as _corpus
+from . import validation as _validation
 
 
 def _record_to_dict(record):
@@ -42,3 +43,19 @@ def parse_skill(dirpath):
 
 def get_all_skills(use_cache=True):
     return [_record_to_dict(skill) for skill in _corpus.get_all_skills(use_cache=use_cache)]
+
+
+def validate_skill(skill):
+    return _validation.validate_skill(skill)
+
+
+def validate_all():
+    return _validation.validate_all(get_all_skills())
+
+
+def score_skill_quality(skill):
+    return _validation.score_skill_quality(skill)
+
+
+build_hygiene_report = _validation.build_hygiene_report
+build_normalization_report = _validation.build_normalization_report

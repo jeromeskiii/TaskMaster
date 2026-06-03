@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 from taskmaster import corpus as _corpus
+from taskmaster import validation as _validation
 
 ROOT = Path(__file__).resolve().parent
 SKILLS_DIR = _corpus.SKILLS_DIR
@@ -99,71 +100,11 @@ def get_all_skills(use_cache: bool = True) -> list[dict]:
 
 
 def validate_skill(skill: dict) -> list[str]:
-    issues = []
-    fm = skill["frontmatter"]
-
-    if not skill["frontmatter_valid"]:
-        return [skill.get("frontmatter_error") or "missing YAML frontmatter"]
-
-    for field in REQUIRED_FIELDS:
-        if field not in fm or not fm[field]:
-            issues.append(f"missing field '{field}'")
-
-    risk = fm.get("risk", "")
-    if risk and risk not in VALID_RISKS:
-        issues.append(f"invalid risk '{risk}'")
-
-    cat = fm.get("category", "")
-    if cat and cat not in KNOWN_CATEGORIES:
-        issues.append(f"unknown category '{cat}'")
-
-    if skill["size_bytes"] < MIN_SIZE:
-        issues.append(f"too small ({skill['size_bytes']} bytes)")
-
-    if skill["line_count"] < MIN_LINES:
-        issues.append(f"too short ({skill['line_count']} lines)")
-
-    desc = fm.get("description", "")
-    if len(desc) < MIN_DESC_LEN:
-        issues.append(f"description too short ({len(desc)} chars)")
-
-    return issues
+    return _validation.validate_skill(skill)
 
 
 def validate_all() -> dict:
-    skills = get_all_skills()
-    issues = []
-    stats = {k: 0 for k in [
-        "total", "valid", "missing_frontmatter", "missing_required_fields",
-        "invalid_risk", "unknown_category", "skeleton_skills", "short_descriptions",
-        "frontmatter_parse_errors",
-    ]}
-
-    for skill in skills:
-        skill_issues = validate_skill(skill)
-        if skill_issues:
-            issues.append({"dir": skill["dir"], "issue": "; ".join(skill_issues)})
-            for issue in skill_issues:
-                if not skill.get("frontmatter_valid") and skill.get("frontmatter_error"):
-                    stats["frontmatter_parse_errors"] += 1
-                    break
-                elif "frontmatter" in issue:
-                    stats["missing_frontmatter"] += 1
-                    break
-                elif "field" in issue:
-                    stats["missing_required_fields"] += 1
-                elif "risk" in issue:
-                    stats["invalid_risk"] += 1
-                elif "category" in issue:
-                    stats["unknown_category"] += 1
-                elif "description" in issue:
-                    stats["short_descriptions"] += 1
-                elif "small" in issue or "short" in issue:
-                    stats["skeleton_skills"] += 1
-        stats["total"] += 1
-
-    stats["valid"] = stats["total"] - len(issues)
-    return {"stats": stats, "issues": issues, "skills": skills}
+    return _validation.validate_all(get_all_skills())
 
 
 def search_skills(query: str, fuzzy: bool = True) -> list[dict]:
@@ -270,39 +211,7 @@ def suggest_skills(task: str, max_results: int = 5) -> list[dict]:
 
 
 def score_skill_quality(skill: dict) -> dict:
-    fm = skill["frontmatter"]
-    score = 0
-    max_score = 100
-    details = {}
-
-    frontmatter_bonus = 0
-    for field in ["name", "description", "category", "risk", "source", "date_added", "tags"]:
-        if field in fm and fm[field]:
-            frontmatter_bonus += 8 if field in ["name", "description"] else 4
-    details["frontmatter_completeness"] = min(frontmatter_bonus, 50)
-    score += details["frontmatter_completeness"]
-
-    desc = fm.get("description", "")
-    details["description_length"] = len(desc)
-    if len(desc) >= 100:
-        score += 15
-    elif len(desc) >= 50:
-        score += 10
-    elif len(desc) >= MIN_DESC_LEN:
-        score += 5
-
-    body_ratio = skill["line_count"] / 50 if skill["line_count"] > 0 else 0
-    details["body_lines"] = skill["line_count"]
-    score += min(body_ratio * 30, 30)
-
-    has_headings = bool(re.search(r'^#{1,3}\s+\w+', skill["body"], re.MULTILINE))
-    has_code_blocks = bool(re.search(r'```', skill["body"]))
-    details["has_structure"] = has_headings
-    details["has_examples"] = has_code_blocks
-    score += 5 if has_headings else 0
-    score += 5 if has_code_blocks else 0
-
-    return {"score": min(score, max_score), "details": details}
+    return _validation.score_skill_quality(skill)
 
 
 def export_skills(as_json: bool = False, skill_name: Optional[str] = None) -> str:
