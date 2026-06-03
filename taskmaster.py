@@ -683,9 +683,5 @@ Examples:
     else:
         parser.print_help()
 
-
-from taskmaster.cli import main
-
-
 if __name__ == "__main__":
     main()
