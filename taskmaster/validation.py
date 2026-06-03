@@ -18,6 +18,7 @@ KNOWN_CATEGORIES = {
 MIN_SIZE = 500
 MIN_LINES = 10
 MIN_DESC_LEN = 30
+OPTIONAL_LIST_FIELDS = ("depends_on", "composes_with")
 
 
 def _coerce_skill(skill: SkillRecord | dict[str, Any]) -> SkillRecord:
@@ -94,6 +95,32 @@ def validate_skill(skill: SkillRecord | dict[str, Any]) -> list[str]:
     if len(description) < MIN_DESC_LEN:
         issues.append(f"description too short ({len(description)} chars)")
 
+    issues.extend(_validate_optional_lists(record))
+
+    return issues
+
+
+def _validate_optional_lists(skill: SkillRecord) -> list[str]:
+    issues: list[str] = []
+    fm = skill.frontmatter
+    for field in OPTIONAL_LIST_FIELDS:
+        if field not in fm:
+            continue
+        value = fm[field]
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if value.strip() == "":
+                continue
+            issues.append(f"field '{field}' must be a list, got string")
+            continue
+        if not isinstance(value, list):
+            issues.append(f"field '{field}' must be a list, got {type(value).__name__}")
+            continue
+        for entry in value:
+            if not isinstance(entry, str) or not entry.strip():
+                issues.append(f"field '{field}' must contain non-empty strings")
+                break
     return issues
 
 
