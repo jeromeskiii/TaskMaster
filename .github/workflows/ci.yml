@@ -49,3 +49,23 @@ jobs:
             exit 1
           }
           echo "✓ INDEX.md is up to date"
+
+  phase1:
+    name: Phase 1 Engine Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install with semantic extras
+        run: |
+          python -m pip install -e ".[semantic]"
+
+      - name: Run Phase 1 tests
+        run: |
+          python -m pytest tests/test_embeddings_provider.py tests/test_embeddings_index.py tests/test_embeddings_text.py tests/test_recommend.py tests/test_compose.py tests/test_cli_phase1.py tests/test_validation_optional_fields.py -v
