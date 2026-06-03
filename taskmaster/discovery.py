@@ -108,11 +108,11 @@ def search_skills(
 
     for record in skills:
         fm = record.frontmatter
-        if category and fm.get("category") != category:
+        if category and str(fm.get("category", "")).lower() != category.lower():
             continue
-        if risk and fm.get("risk") != risk:
+        if risk and str(fm.get("risk", "")).lower() != risk.lower():
             continue
-        if tag and tag not in _as_list(fm.get("tags")):
+        if tag and tag.lower() not in {item.lower() for item in _as_list(fm.get("tags"))}:
             continue
 
         reasons: list[str] = []
