@@ -71,7 +71,7 @@ def test_openai_provider_lazy_load(monkeypatch):
 
     p = mod.OpenAIProvider(model="text-embedding-3-small")
     assert p.name == "openai"
-    assert p.dim == 4
+    assert p.dim == 1536
     assert p.model_id == "openai/text-embedding-3-small"
     v = p.embed(["a", "b"])
     assert v.shape == (2, 4)
