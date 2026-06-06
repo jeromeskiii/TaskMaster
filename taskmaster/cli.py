@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import sys
 from pathlib import Path
+from typing import Callable
 
 import taskmaster
-from taskmaster import cli as _self_marker  # noqa: F401  (intentional import path stability)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,12 +53,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     diff_p = sub.add_parser("diff", help="Compare skill to schema")
     diff_p.add_argument("skill_dir")
-
-    hygiene_p = sub.add_parser("hygiene", help="Hygiene report")
-    normalize_p = sub.add_parser("normalize", help="Normalize metadata (dry-run)")
-    related_p = sub.add_parser("related", help="Find related skills")
-    related_p.add_argument("skill_ref")
-    related_p.add_argument("--max", type=int, default=5)
 
     embed_p = sub.add_parser("embed", help="Build or refresh the embedding index")
     embed_p.add_argument("--rebuild", action="store_true", help="Force a full rebuild")
@@ -159,35 +151,115 @@ def _cmd_compose(args) -> int:
     return 0
 
 
-_DISPATCH = {
+def _cmd_validate(args) -> int:
+    return taskmaster.print_validation_report(
+        taskmaster.validate_all(), json_out=bool(getattr(args, "json", False))
+    )
+
+
+def _cmd_list(args) -> int:
+    report = taskmaster.validate_all()
+    skills = report["skills"]
+    if getattr(args, "category", None):
+        skills = [s for s in skills if s["frontmatter"].get("category") == args.category]
+    if getattr(args, "risk", None):
+        skills = [s for s in skills if s["frontmatter"].get("risk") == args.risk]
+    skills.sort(key=lambda s: s["frontmatter"].get("name", s["dir"]))
+    taskmaster.print_skills_table(skills, long=bool(getattr(args, "long", False)))
+    return 0
+
+
+def _cmd_search(args) -> int:
+    taskmaster.print_search_results(
+        taskmaster.search_skills(args.query, fuzzy=not bool(getattr(args, "no_fuzzy", False)))
+    )
+    return 0
+
+
+def _cmd_suggest(args) -> int:
+    results = taskmaster.suggest_skills(args.task, max_results=getattr(args, "max", 5))
+    taskmaster.print_search_results(results, show_scores=True)
+    if not results:
+        print("\n  Tip: Try broader terms like 'web', 'api', 'security', 'data', 'cloud'")
+    return 0
+
+
+def _cmd_stats(args) -> int:
+    taskmaster.print_stats(taskmaster.validate_all(), verbose=bool(getattr(args, "verbose", False)))
+    return 0
+
+
+def _cmd_generate_index(_args) -> int:
+    taskmaster.generate_index(taskmaster.validate_all())
+    return 0
+
+
+def _cmd_check(args) -> int:
+    skill = taskmaster.parse_skill(taskmaster.SKILLS_DIR / args.skill_dir)
+    if not skill:
+        print(f"Error: no SKILL.md in '{args.skill_dir}'")
+        return 1
+    fm = skill["frontmatter"]
+    print(f"\n  Skill:  {fm.get('name', '?')}")
+    print(f"  Dir:    {skill['dir']}")
+    print(f"  Cat:    {fm.get('category', '?')}")
+    print(f"  Risk:   {fm.get('risk', '?')}")
+    print(f"  Source: {fm.get('source', '?')}")
+    print(f"  Size:   {skill['size_bytes']} bytes, {skill['line_count']} body lines")
+    print(f"  Desc:   {fm.get('description', '?')[:120]}")
+    issues = taskmaster.validate_skill(skill)
+    print(f"  Issues: {', '.join(issues)}" if issues else "  Status: valid")
+    return 0
+
+
+def _cmd_export(args) -> int:
+    print(
+        taskmaster.export_skills(
+            as_json=bool(getattr(args, "json", False)),
+            skill_name=getattr(args, "skill", None),
+        )
+    )
+    return 0
+
+
+def _cmd_diff(args) -> int:
+    print(taskmaster.diff_skill(args.skill_dir))
+    return 0
+
+
+def _cmd_quality(_args) -> int:
+    taskmaster.print_quality_report(taskmaster.get_all_skills())
+    return 0
+
+
+_DISPATCH: dict[str, Callable[..., int]] = {
+    "validate": _cmd_validate,
+    "list": _cmd_list,
+    "search": _cmd_search,
+    "suggest": _cmd_suggest,
+    "stats": _cmd_stats,
+    "generate-index": _cmd_generate_index,
+    "check": _cmd_check,
+    "export": _cmd_export,
+    "diff": _cmd_diff,
+    "quality": _cmd_quality,
     "embed": _cmd_embed,
     "recommend": _cmd_recommend,
     "compose": _cmd_compose,
 }
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    argv = sys.argv[1:]
-    if argv and not argv[0].startswith("-"):
-        first = argv[0]
-        valid: set[str] = set()
-        for action in _subparsers_actions(parser):
-            if action.choices:
-                valid.update(action.choices.keys())
-        if first in valid:
-            args = parser.parse_args()
-            if args.command in _DISPATCH:
-                sys.exit(_DISPATCH[args.command](args))
-    # Fall back to legacy dispatch in __init__.py for unchanged commands
-    # (or when this entrypoint is invoked without a real CLI argv).
-    taskmaster.main()
-
-
-def _subparsers_actions(parser: argparse.ArgumentParser):
-    for action in parser._actions:
-        if isinstance(action, argparse._SubParsersAction):
-            yield action
+    args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return 0
+    handler = _DISPATCH.get(args.command)
+    if handler is None:
+        parser.print_help()
+        return 1
+    return handler(args)
 
 
 if __name__ == "__main__":

@@ -12,9 +12,22 @@
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
 
 # Harness validation (auto-generated)
 .harness/
+
+# Local app state / credentials
+.env
+.env.*
+!.env.example
+*.db
 
 # Backups
 *.bak
@@ -22,3 +35,9 @@ __pycache__/
 
 # Node
 node_modules/
+
+# Nested imported repos should be tracked as ordinary directories only.
+**/.git/
+
+# Logs (avoid accidental commits of training_output.log, etc.)
+*.log
