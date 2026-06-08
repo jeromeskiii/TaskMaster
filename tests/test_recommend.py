@@ -50,3 +50,40 @@ def test_recommend_degraded_flag_false_when_keyword_only():
     skills = [_skill("a", "alpha alpha alpha", ["x"])]
     results = recommend_skills("alpha", skills=skills, index=None, k=1)
     assert results[0].get("degraded") is True
+
+
+def test_recommend_degraded_banner_in_cli_output():
+    """The recommend CLI must print the degraded banner when no embedding index is available."""
+    import contextlib
+    import io
+    from taskmaster import cli
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = cli.main(["recommend", "debug a production API timeout", "--max", "3"])
+    assert rc == 0
+    out = buf.getvalue()
+    assert "degraded mode" in out
+    assert "Recommended skills:" in out
+
+
+def test_recommend_json_includes_degraded_flag_per_result():
+    """JSON output must include a 'degraded' field per result."""
+    import contextlib
+    import io
+    import json
+    from taskmaster import cli
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = cli.main(
+            ["recommend", "debug a production API timeout", "--max", "3", "--json"]
+        )
+    assert rc == 0
+    payload = json.loads(buf.getvalue())
+    assert isinstance(payload, list)
+    assert len(payload) >= 1
+    for item in payload:
+        assert "degraded" in item
+        # Base env: no [semantic] extra, so every result should be degraded
+        assert item["degraded"] is True
