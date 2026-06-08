@@ -67,6 +67,24 @@ def build_parser() -> argparse.ArgumentParser:
     compose_p.add_argument("skills", nargs="+", help="Skill names or directories")
     compose_p.add_argument("--json", action="store_true")
 
+    install_p = sub.add_parser("install", help="Install skills to an agent runtime")
+    install_p.add_argument("target", choices=["claude", "qwen", "cursor", "all"])
+    install_p.add_argument("--scope", choices=["user", "project"], default="project")
+    install_p.add_argument("--skills", help="Comma-separated skill names (default: all)")
+    install_p.add_argument("--copy", action="store_true", help="Copy instead of symlink")
+    install_p.add_argument("--force", action="store_true", help="Overwrite existing")
+
+    uninstall_p = sub.add_parser("uninstall", help="Remove skills from an agent runtime")
+    uninstall_p.add_argument("target", choices=["claude", "qwen", "cursor", "all"])
+    uninstall_p.add_argument("--scope", choices=["user", "project"], default="project")
+
+    mcp_p = sub.add_parser("mcp", help="MCP server commands")
+    mcp_sub = mcp_p.add_subparsers(dest="mcp_command", help="MCP commands")
+    mcp_serve_p = mcp_sub.add_parser("serve", help="Start MCP server for agent-to-agent access")
+    mcp_serve_p.add_argument("--sse", action="store_true", help="Use SSE transport instead of stdio")
+    mcp_serve_p.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
+    mcp_serve_p.add_argument("--port", type=int, default=8000, help="Port for SSE transport (default: 8000)")
+
     return parser
 
 
@@ -106,10 +124,12 @@ def _cmd_recommend(args) -> int:
         index, _ = _embedding_index(skills, rebuild=False)
     except RuntimeError:
         index = None
+    
     from taskmaster.recommend import recommend_skills
     results = recommend_skills(
         args.task, skills=skills, index=index, k=args.max, max_risk=args.max_risk
     )
+    
     if args.json:
         print(json.dumps([
             {"name": r["skill"]["frontmatter"].get("name", r["skill"]["dir"]),
@@ -117,15 +137,27 @@ def _cmd_recommend(args) -> int:
             for r in results
         ], indent=2))
         return 0
-    for r in results:
+
+    if index is None:
+        print("  (degraded mode — semantic embeddings unavailable)")
+
+    print("\nRecommended skills:")
+    for i, r in enumerate(results, 1):
         fm = r["skill"]["frontmatter"]
-        print(f"  {fm.get('name', r['skill']['dir']):<35} score={r['score']:.3f}  {' '.join(r['reasons'])}")
+        print(f"{i}. {fm.get('name', r['skill']['dir'])}")
+    
+    if results:
+        print("\nWhy:")
+        # Show top reasons from the first result
+        for reason in results[0]["reasons"]:
+            print(f"- {reason}")
     return 0
 
 
 def _cmd_compose(args) -> int:
     skills = taskmaster.get_all_skills()
-    from taskmaster.compose import CycleError, compose_skills
+    from taskmaster.compose import compose_skills
+    from taskmaster.errors import CycleError
     try:
         plan = compose_skills(args.skills, skills=skills)
     except CycleError as e:
@@ -143,11 +175,14 @@ def _cmd_compose(args) -> int:
     if args.json:
         print(json.dumps(plan.to_dict(), indent=2))
     else:
-        for step in plan.steps:
-            deps = ", ".join(step["depends_on"]) if step["depends_on"] else "-"
-            print(f"  {step['name']:<35} depends_on: {deps}")
-        for w in plan.warnings:
-            print(f"  warning: {w}")
+        print("\nExecution plan:")
+        for i, step in enumerate(plan.steps, 1):
+            print(f"{i}. {step['name']}")
+        
+        if plan.warnings:
+            print("\nWarnings:")
+            for w in plan.warnings:
+                print(f"- {w}")
     return 0
 
 
@@ -207,6 +242,12 @@ def _cmd_check(args) -> int:
     print(f"  Source: {fm.get('source', '?')}")
     print(f"  Size:   {skill['size_bytes']} bytes, {skill['line_count']} body lines")
     print(f"  Desc:   {fm.get('description', '?')[:120]}")
+    deps = fm.get('depends_on')
+    if deps:
+        print(f"  Depends on: {', '.join(deps)}")
+    composes = fm.get('composes_with')
+    if composes:
+        print(f"  Composes with: {', '.join(composes)}")
     issues = taskmaster.validate_skill(skill)
     print(f"  Issues: {', '.join(issues)}" if issues else "  Status: valid")
     return 0
@@ -232,6 +273,59 @@ def _cmd_quality(_args) -> int:
     return 0
 
 
+def _cmd_mcp(args) -> int:
+    if args.mcp_command != "serve":
+        print("Usage: taskmaster mcp serve [--sse] [--host HOST] [--port PORT]")
+        return 1
+    try:
+        from taskmaster.mcp.server import serve as mcp_serve
+    except ImportError as e:
+        print(f"Error: MCP server requires the 'mcp' extra.\npip install 'taskmaster[mcp]'\n({e})")
+        return 1
+    transport = "sse" if args.sse else "stdio"
+    mcp_serve(transport=transport, host=args.host, port=args.port)
+    return 0
+
+
+def _cmd_install(args) -> int:
+    from taskmaster.install import install_skills
+    from taskmaster.errors import InstallError, InstallUsageError
+    skill_names = args.skills.split(",") if args.skills else None
+    try:
+        results = install_skills(
+            target=args.target,
+            scope=args.scope,
+            skill_names=skill_names,
+            copy=args.copy,
+            force=args.force
+        )
+        for target, info in results.items():
+            print(f"Installed {info['count']} skills to {target} ({info['path']})")
+    except InstallUsageError as e:
+        print(f"Error: {e}")
+        return 2
+    except InstallError as e:
+        print(f"Error: {e}")
+        return 1
+    return 0
+
+
+def _cmd_uninstall(args) -> int:
+    from taskmaster.install import uninstall_skills
+    from taskmaster.errors import InstallError
+    try:
+        results = uninstall_skills(target=args.target, scope=args.scope)
+        for target, info in results.items():
+            if info["status"] == "uninstalled":
+                print(f"Uninstalled {info['count']} skills from {target}")
+            else:
+                print(f"Target {target}: {info.get('message', info['status'])}")
+    except InstallError as e:
+        print(f"Error: {e}")
+        return 1
+    return 0
+
+
 _DISPATCH: dict[str, Callable[..., int]] = {
     "validate": _cmd_validate,
     "list": _cmd_list,
@@ -246,6 +340,9 @@ _DISPATCH: dict[str, Callable[..., int]] = {
     "embed": _cmd_embed,
     "recommend": _cmd_recommend,
     "compose": _cmd_compose,
+    "mcp": _cmd_mcp,
+    "install": _cmd_install,
+    "uninstall": _cmd_uninstall,
 }
 
 
