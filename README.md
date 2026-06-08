@@ -57,6 +57,58 @@ quality = score_skill_quality(skills[0])
 
 `build_hygiene_report()` surfaces duplicate names, near-duplicate descriptions, tag-shape inconsistencies, parse-error rollups, and category/risk anomaly counts. `build_normalization_report()` proposes canonical metadata cleanups such as converting scalar tag strings into normalized tag lists.
 
+## MCP Setup
+
+Expose TaskMaster as an MCP server so Claude Code, Cursor, and other MCP clients can call its tools directly. Requires the `mcp` extra.
+
+### Install
+
+```bash
+pip install "taskmaster[mcp]"
+```
+
+### Verify the server starts
+
+```bash
+python3 -m taskmaster.mcp serve
+```
+
+(The server blocks on stdio. Press Ctrl-C to stop. To test end-to-end, wire it into a client — see below.)
+
+### Claude Code
+
+Add a `.mcp.json` at your project root (or `~/.claude/mcp.json` for user scope):
+
+```json
+{
+  "mcpServers": {
+    "taskmaster": {
+      "command": "python3",
+      "args": ["-m", "taskmaster.mcp", "serve"]
+    }
+  }
+}
+```
+
+Restart Claude Code. The TaskMaster tools (`validate_all`, `search_skills`, `list_skills`, `list_categories`, `get_skill`, `suggest`, `recommend_skills`, `compose_skills`, `check_skill`, `validate_skill`, `corpus_stats`, `install_skill`) should appear in the tool picker.
+
+### Cursor
+
+Add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "taskmaster": {
+      "command": "python3",
+      "args": ["-m", "taskmaster.mcp", "serve"]
+    }
+  }
+}
+```
+
+Restart Cursor. The same 12 tools become available.
+
 ## Structure
 
 Each skill lives in its own directory:
@@ -133,6 +185,39 @@ python3 taskmaster.py check my-new-skill
 python3 taskmaster.py generate-index
 ```
 
+## Agent-Native Skill OS
+
+TaskMaster is an agent-native Skill OS that helps AI agents discover, load, compose, and execute the right skills for a task. It provides a local intelligence layer for Claude Code, Cursor, Qwen, and other AI coding assistants.
+
+### 1. Discovery & Recommendation
+Recommend the top-K skills for a free-form task with explainable scoring.
+```bash
+python3 taskmaster.py recommend "debug a production API timeout"
+```
+
+### 2. Composition
+Compose a topologically ordered plan from multiple skills based on `depends_on` and `composes_with` rules.
+```bash
+python3 taskmaster.py compose error-detective distributed-tracing incident-responder
+```
+
+### 3. Agent Integration (MCP)
+Expose the 269-skill catalog as an MCP server.
+```bash
+python3 taskmaster.py mcp-serve
+```
+Exposes tools like `search_skills`, `recommend_skills`, `compose_skills`, `get_skill`, `list_skills`, and `install_skill`.
+
+### 4. Installation
+Install or symlink skills into local agent runtimes (Claude, Cursor, Qwen).
+```bash
+# Install specific skills to Claude (project scope)
+python3 taskmaster.py install claude --skills error-detective,distributed-tracing
+
+# Install all skills to Cursor (user scope)
+python3 taskmaster.py install cursor --scope user
+```
+
 ## Phase 1 — Agent-Native Engine
 
 The 269-skill catalog now ships with a hybrid recommender, a dependency-graph composer, and a pluggable embedding system. Three new CLI subcommands are available:
@@ -166,10 +251,10 @@ These fields are optional. Existing skills that omit them continue to validate a
 
 ### Installation
 
-The base install (`pip install taskmaster`) requires no new dependencies. To enable semantic search:
+The base install (`pip install taskmaster`) requires no new dependencies. To enable the full Agent OS features (MCP + semantic search):
 
 ```bash
-pip install "taskmaster[semantic]"
+pip install "taskmaster[all]"
 ```
 
 For OpenAI-backed embeddings:
