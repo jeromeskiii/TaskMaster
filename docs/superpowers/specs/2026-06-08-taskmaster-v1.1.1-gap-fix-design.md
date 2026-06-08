@@ -44,7 +44,7 @@ exits with `Error: Skill not found: python` and no closest-match hint. The
 
 ### In scope
 
-- Gap A: `install` closest-match suggestions for unknown skill names
+- Gap A: `install` closest-match suggestions for unknown skill names (exit code 2, distinct from runtime exit 1)
 - Gap B: MCP tool-response test coverage
 - Gap C: Degraded-mode test assertion (banner + JSON `degraded` field)
 - Gap D: README MCP setup section with Claude Code and Cursor snippets
@@ -87,6 +87,9 @@ unknown name, look up the closest 3 matches using the same algorithm
   `Unknown skill 'python'. Did you mean: temporal-python-pro, dbos-python, temporal-python-testing?`
 - `taskmaster install claude --skills error-detective,bug-hunter` exits `0`.
 - Multiple unknown names are reported in one error, not one at a time.
+- A new `InstallUsageError` subclass (code `install_usage`) is raised by the
+  engine; the CLI handler maps it to exit code 2 (standard usage error,
+  distinct from runtime `InstallError` which keeps exit code 1).
 - New unit tests in `tests/test_install.py` cover: single unknown, multiple
   unknowns, no unknowns (regression), and exit-code assertion.
 
@@ -264,7 +267,7 @@ test asserting the top-3 result for that canonical query.
 | Gap E investigation runs long | Hard 2-hour time-box. If it doesn't pay off, ship the `--keyword-only` flag and document. |
 | MCP tests require `mcp` extra | Tests must call underlying tool functions directly, not the FastMCP transport. No `[mcp]` required to run tests. |
 | README MCP config path is wrong | Verify `python3 -m taskmaster.mcp serve` works in a fresh shell before merging. |
-| `install` exit code change breaks scripts | Use exit code `2` (standard "usage error"). Document in `--help`. |
+| `install` exit code change breaks scripts | Use a new `InstallUsageError` subclass (code `install_usage`) mapped to exit code 2; existing `InstallError` keeps exit 1. Document in `--help`. |
 
 ## Test strategy
 
