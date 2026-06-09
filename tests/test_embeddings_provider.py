@@ -137,8 +137,11 @@ def test_openai_provider_lazy_load(monkeypatch):
         def __init__(self, *a, **kw):
             self.embeddings = FakeEmbeddings()
 
-    import openai
-    monkeypatch.setattr(openai, "OpenAI", FakeClient)
+    import sys
+    from unittest.mock import MagicMock
+    fake_openai = MagicMock()
+    fake_openai.OpenAI = FakeClient
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
 
     p = mod.OpenAIProvider(model="text-embedding-3-small")
