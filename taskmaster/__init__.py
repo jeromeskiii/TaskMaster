@@ -332,7 +332,6 @@ def generate_index(report: dict) -> None:
         "# TaskMaster - Skill Index\n\n",
         f"**Total Skills:** {len(skills)}\n",
         f"**Categories:** {len(by_category)}\n",
-        f"**Generated:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC\n\n",
         "## Quick Stats\n\n",
         "| Category | Count |\n",
         "|----------|-------|\n",
@@ -388,4 +387,3 @@ def main() -> int:
     from taskmaster import cli as _cli
 
     return _cli.main()
-

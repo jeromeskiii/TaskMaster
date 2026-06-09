@@ -3,8 +3,6 @@
 
 **Total Skills:** 269
 **Categories:** 20
-**Generated:** 2026-06-09 21:52 UTC
-
 ## Quick Stats
 
 | Category | Count |

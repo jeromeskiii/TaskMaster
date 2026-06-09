@@ -4,6 +4,7 @@
 import json
 import sys
 import unittest
+import tempfile
 from pathlib import Path
 
 # Add parent to path
@@ -416,6 +417,38 @@ class TestIntegration(unittest.TestCase):
         report = tm.validate_all()
         self.assertEqual(report["stats"]["short_descriptions"], 1)
         self.assertEqual(report["stats"]["skeleton_skills"], 0)
+
+    def test_generate_index_is_deterministic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_root = tm.ROOT
+            original_skills_dir = tm.SKILLS_DIR
+            self.addCleanup(setattr, tm, "ROOT", original_root)
+            self.addCleanup(setattr, tm, "SKILLS_DIR", original_skills_dir)
+
+            tm.ROOT = Path(tmpdir)
+            tm.SKILLS_DIR = Path(tmpdir) / "skills"
+
+            report = {
+                "skills": [
+                    {
+                        "dir": "demo-skill",
+                        "frontmatter": {
+                            "name": "demo-skill",
+                            "description": "A deterministic example skill for index generation.",
+                            "category": "development",
+                            "risk": "safe",
+                        },
+                    }
+                ]
+            }
+
+            tm.generate_index(report)
+            first = (Path(tmpdir) / "INDEX.md").read_text(encoding="utf-8")
+            tm.generate_index(report)
+            second = (Path(tmpdir) / "INDEX.md").read_text(encoding="utf-8")
+
+            self.assertEqual(first, second)
+            self.assertNotIn("Generated:", first)
 
 
 if __name__ == "__main__":
