@@ -99,6 +99,22 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_parser("mcp-serve", help="Deprecated alias for 'mcp serve'")
     ).set_defaults(mcp_command="serve")
 
+    # Add context subparsers
+    context_p = sub.add_parser("context", help="Manage local context budget and storage")
+    context_sub = context_p.add_subparsers(dest="context_command", required=True)
+
+    compress_p = context_sub.add_parser("compress", help="Compress context from stdin or file")
+    compress_p.add_argument("file", nargs="?", help="File to compress (reads stdin if omitted)")
+    compress_p.add_argument("--max-chars", type=int, default=4000)
+
+    retrieve_p = context_sub.add_parser("retrieve", help="Retrieve original context by handle")
+    retrieve_p.add_argument("handle")
+
+    context_sub.add_parser("stats", help="Show context store stats")
+
+    prune_p = context_sub.add_parser("prune", help="Prune old context records")
+    prune_p.add_argument("--max-age-days", type=float, default=7.0)
+
     return parser
 
 
@@ -376,6 +392,49 @@ def _cmd_uninstall(args) -> int:
     return 0
 
 
+def _cmd_context(args) -> int:
+    import sys
+    from pathlib import Path
+    from taskmaster.context_budget_manager.core import ContextBudgetManager
+    
+    manager = ContextBudgetManager()
+    try:
+        if args.context_command == "compress":
+            if args.file:
+                path = Path(args.file)
+                text = path.read_text(encoding="utf-8")
+                result = manager.compress(text, source_name=str(path), max_chars=args.max_chars)
+            else:
+                text = sys.stdin.read()
+                result = manager.compress(text, max_chars=args.max_chars)
+
+            print(result.compressed_text)
+            print("\n---")
+            print(f"handle={result.handle}")
+            print(f"type={result.content_type.value}")
+            print(f"tokens={result.original_tokens}->{result.compressed_tokens}")
+            print(f"saved={result.saved_tokens}")
+            print(f"ratio={result.compression_ratio:.2f}")
+            return 0
+
+        if args.context_command == "retrieve":
+            print(manager.retrieve(args.handle))
+            return 0
+
+        if args.context_command == "stats":
+            print(manager.stats())
+            return 0
+
+        if args.context_command == "prune":
+            deleted = manager.prune(args.max_age_days * 86400.0)
+            print(f"Successfully pruned {deleted} context payload(s).")
+            return 0
+    except Exception as exc:
+        print(f"cbm error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 _DISPATCH: dict[str, Callable[..., int]] = {
     "validate": _cmd_validate,
     "list": _cmd_list,
@@ -395,6 +454,7 @@ _DISPATCH: dict[str, Callable[..., int]] = {
     "mcp-serve": _cmd_mcp,
     "install": _cmd_install,
     "uninstall": _cmd_uninstall,
+    "context": _cmd_context,
 }
 
 
