@@ -13,6 +13,10 @@ import taskmaster.cli as cli
 import taskmaster as entrypoint
 
 
+def _expected_python(repo_root: Path) -> str:
+    return ".venv/bin/python" if (repo_root / ".venv" / "bin" / "python").exists() else "python3"
+
+
 class TestCompatibilityEntryPoint(unittest.TestCase):
     def test_package_main_delegates_to_cli_main(self):
         with patch.object(cli, "main", return_value=0) as mock_cli_main:
@@ -76,7 +80,7 @@ class TestMakefileWrappers(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), ".venv/bin/python -m pytest tests/ -v")
+        self.assertEqual(result.stdout.strip(), f"{_expected_python(repo_root)} -m pytest tests/ -v")
 
     def test_install_wrapper_uses_repo_virtualenv(self):
         repo_root = Path(__file__).resolve().parent.parent
@@ -91,7 +95,7 @@ class TestMakefileWrappers(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.strip(),
-            ".venv/bin/python -m pip install -e \".[all]\"",
+            f"{_expected_python(repo_root)} -m pip install -e \".[all]\"",
         )
 
     def test_search_wrapper_preserves_multi_word_query(self):
@@ -107,7 +111,7 @@ class TestMakefileWrappers(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.strip(),
-            ".venv/bin/python taskmaster.py search \"code review\"",
+            f"{_expected_python(repo_root)} taskmaster.py search \"code review\"",
         )
 
     def test_compose_wrapper_splits_comma_separated_skills(self):
@@ -123,7 +127,7 @@ class TestMakefileWrappers(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.strip(),
-            ".venv/bin/python taskmaster.py compose bug-hunter error-detective",
+            f"{_expected_python(repo_root)} taskmaster.py compose bug-hunter error-detective",
         )
 
 
