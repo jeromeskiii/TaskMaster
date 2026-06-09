@@ -19,7 +19,6 @@ tools:
 - gemini
 - cursor
 - claude
-category: development
 ---
 
 # Progressive Web Apps (PWAs)

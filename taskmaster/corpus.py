@@ -11,9 +11,50 @@ from typing import Any, Optional
 
 import yaml
 
-ROOT = Path(__file__).resolve().parent.parent
-SKILLS_DIR = ROOT
 
+def _has_skill_catalog(path: Path) -> bool:
+    try:
+        return any(
+            child.is_dir() and not child.name.startswith(".") and (child / "SKILL.md").exists()
+            for child in path.iterdir()
+        )
+    except OSError:
+        return False
+
+
+def _find_catalog_root(start: Path, max_depth: int = 5) -> Path | None:
+    for depth, candidate in enumerate((start, *start.parents)):
+        if depth > max_depth:
+            break
+        if _has_skill_catalog(candidate):
+            return candidate
+    return None
+
+
+def _resolve_root() -> Path:
+    configured = os.environ.get("TASKMASTER_SKILLS_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+
+    cwd = Path.cwd().resolve()
+    catalog_root = _find_catalog_root(cwd)
+    if catalog_root is not None:
+        return catalog_root
+
+    return Path(__file__).resolve().parent.parent
+
+
+ROOT = _resolve_root()
+
+
+def _resolve_skills_dir(root: Path) -> Path:
+    skills_subdir = root / "skills"
+    if skills_subdir.is_dir() and _has_skill_catalog(skills_subdir):
+        return skills_subdir
+    return root
+
+
+SKILLS_DIR = _resolve_skills_dir(ROOT)
 CACHE_DIR = ROOT / ".taskmaster_cache"
 CACHE_FILE = CACHE_DIR / "skills_cache.json"
 CACHE_TTL = 300

@@ -4,7 +4,7 @@ description: "Upload, stream, search, edit, transcribe, and generate AI video an
 category: media
 risk: safe
 source: community
-tags: "[video, editing, transcription, subtitles, search, streaming, ai-generation, media]"
+tags: [video, editing, transcription, subtitles, search, streaming, ai-generation, media]
 date_added: "2026-02-27"
 ---
 

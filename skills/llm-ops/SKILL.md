@@ -20,7 +20,6 @@ tools:
 - cursor
 - gemini-cli
 - codex-cli
-category: ai
 ---
 
 # LLM-OPS -- IA de Producao

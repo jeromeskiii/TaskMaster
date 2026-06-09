@@ -19,7 +19,6 @@ tools:
 - cursor
 - gemini-cli
 - codex-cli
-category: development
 ---
 
 # Task Intelligence — Protocolo de Amplificação Pré-Tarefa

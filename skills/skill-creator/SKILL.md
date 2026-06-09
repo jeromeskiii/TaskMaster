@@ -4,7 +4,7 @@ description: "To create new CLI skills following Anthropic's official best pract
 category: meta
 risk: safe
 source: community
-tags: "[automation, scaffolding, skill-creation, meta-skill]"
+tags: [automation, scaffolding, skill-creation, meta-skill]
 date_added: "2026-02-27"
 ---
 

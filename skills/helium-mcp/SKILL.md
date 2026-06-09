@@ -22,7 +22,6 @@ tools:
 - claude
 - cursor
 - gemini
-category: mcp
 ---
 
 # Helium MCP

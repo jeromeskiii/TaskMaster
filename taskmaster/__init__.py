@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
-import argparse
 import json
-import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from . import compose as _compose
 from . import corpus as _corpus
 from . import discovery as _discovery
+from . import errors as _errors
+from . import install as _install
+from . import recommend as _recommend
 from . import validation as _validation
 
 SkillRecord = _corpus.SkillRecord
 UniqueKeyLoader = _corpus.UniqueKeyLoader
+ROOT = _corpus.ROOT
 SKILLS_DIR = _corpus.SKILLS_DIR
 CACHE_DIR = _corpus.CACHE_DIR
 CACHE_FILE = _corpus.CACHE_FILE
@@ -72,6 +75,57 @@ def related_skills(skill_ref: str, max_results: int = 5) -> list[dict]:
 
 def score_skill_quality(skill: SkillRecord | dict) -> dict:
     return _validation.score_skill_quality(skill)
+
+
+def recommend_skills(task: str, max_results: int = 5, max_risk: str | None = None) -> list[dict]:
+    from .embeddings import get_default_provider
+    from .embeddings.index import EmbeddingIndex
+    from .embeddings.provider import cache_key
+
+    skills = get_all_skills()
+    provider = get_default_provider()
+    cache_dir = CACHE_DIR / "embeddings" / cache_key(provider)
+    index = EmbeddingIndex(provider=provider, cache_dir=cache_dir)
+    try:
+        index.load()
+    except Exception:
+        index = None
+
+    results = _recommend.recommend_skills(
+        task, skills=skills, index=index, k=max_results, max_risk=max_risk
+    )
+    return results
+
+
+def compose_skills(names: list[str]) -> dict:
+    plan = _compose.compose_skills(names, get_all_skills())
+    return plan.to_dict()
+
+
+def install_skills(
+    target: str,
+    scope: str,
+    skills: list[str] | None = None,
+    copy: bool = False,
+    force: bool = False,
+) -> dict:
+    return _install.install_skills(
+        target=target,
+        scope=scope,
+        skill_names=skills,
+        copy=copy,
+        force=force
+    )
+
+
+def uninstall_skills(target: str, scope: str) -> dict:
+    return _install.uninstall_skills(target=target, scope=scope)
+
+
+TaskMasterError = _errors.TaskMasterError
+CycleError = _errors.CycleError
+InstallError = _errors.InstallError
+EmbeddingError = _errors.EmbeddingError
 
 
 def export_skills(as_json: bool = False, skill_name: Optional[str] = None) -> str:
@@ -294,10 +348,11 @@ def generate_index(report: dict) -> None:
         for skill in category_skills:
             fm = skill["frontmatter"]
             name = fm.get("name", skill["dir"])
-            link = f"[{name}]({skill['dir']}/SKILL.md)"
+            prefix = "skills/" if SKILLS_DIR.name == "skills" else ""
+            link = f"[{name}]({prefix}{skill['dir']}/SKILL.md)"
             lines.append(f"| {link} | {fm.get('risk', '?')} | {fm.get('description', '')[:80]}... |\n")
 
-    (SKILLS_DIR / "INDEX.md").write_text("".join(lines), encoding="utf-8")
+    (ROOT / "INDEX.md").write_text("".join(lines), encoding="utf-8")
     print(f"INDEX.md regenerated ({len(skills)} skills, {len(by_category)} categories)")
 
 

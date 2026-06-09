@@ -19,7 +19,6 @@ tools:
 - cursor
 - gemini-cli
 - codex-cli
-category: ai
 ---
 
 # EarLLM One — Build & Maintain

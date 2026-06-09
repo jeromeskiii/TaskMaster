@@ -19,7 +19,6 @@ allowed-tools:
 - mcp__serena__get_symbols_overview
 risk: medium
 source: community
-category: development
 ---
 
 # zeroize-audit — Claude Skill

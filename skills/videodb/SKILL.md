@@ -4,7 +4,7 @@ description: Video and audio perception, indexing, and editing. Ingest files/URL
 category: media
 risk: safe
 source: community
-tags: "[video, editing, transcription, subtitles, search, streaming, ai-generation, media, live-streams, desktop-capture]"
+tags: [video, editing, transcription, subtitles, search, streaming, ai-generation, media, live-streams, desktop-capture]
 date_added: "2026-02-27"
 allowed-tools: Read Grep Glob Bash(python:*)
 argument-hint: "[task description]"
