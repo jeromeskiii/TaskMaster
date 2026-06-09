@@ -14,9 +14,7 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import Any
 
-
 from .errors import InstallError, InstallUsageError
-
 
 TARGET_PATHS = {
     "user": {

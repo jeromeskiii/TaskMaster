@@ -1,5 +1,6 @@
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -95,6 +96,70 @@ class TestCorpusIntegration(unittest.TestCase):
         for skill in skills:
             self.assertIsInstance(skill, SkillRecord)
             self.assertTrue(skill.path.endswith("SKILL.md"))
+
+    def test_installed_package_uses_catalog_working_directory(self):
+        package_src = Path(__file__).resolve().parent.parent / "taskmaster"
+        with tempfile.TemporaryDirectory() as tmp:
+            site_dir = Path(tmp) / "site"
+            catalog_dir = Path(tmp) / "catalog"
+            shutil.copytree(package_src, site_dir / "taskmaster", ignore=shutil.ignore_patterns("__pycache__"))
+            skill_dir = catalog_dir / "example-skill"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: example-skill\ncategory: development\nrisk: safe\n"
+                "description: Example skill with a long enough description.\n---\n"
+                "# Body\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import taskmaster.corpus as c; print(c.SKILLS_DIR)",
+                ],
+                cwd=catalog_dir,
+                env={**os.environ, "PYTHONPATH": str(site_dir)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(result.stdout.strip()).resolve(), catalog_dir.resolve())
+
+    def test_installed_package_uses_catalog_from_nested_working_directory(self):
+        package_src = Path(__file__).resolve().parent.parent / "taskmaster"
+        with tempfile.TemporaryDirectory() as tmp:
+            site_dir = Path(tmp) / "site"
+            catalog_dir = Path(tmp) / "catalog"
+            nested_dir = catalog_dir / "nested" / "deeper"
+            shutil.copytree(package_src, site_dir / "taskmaster", ignore=shutil.ignore_patterns("__pycache__"))
+            skill_dir = catalog_dir / "example-skill"
+            skill_dir.mkdir(parents=True)
+            nested_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: example-skill\ncategory: development\nrisk: safe\n"
+                "description: Example skill with a long enough description.\n---\n"
+                "# Body\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import taskmaster.corpus as c; print(c.SKILLS_DIR)",
+                ],
+                cwd=nested_dir,
+                env={**os.environ, "PYTHONPATH": str(site_dir)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(result.stdout.strip()).resolve(), catalog_dir.resolve())
 
 
 class TestTaskmasterScriptDelegation(unittest.TestCase):

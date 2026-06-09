@@ -11,6 +11,7 @@ from __future__ import annotations
 from .provider import (
     EmbeddingProvider,
     NullProvider,
+    StubProvider,
     get_default_provider,
 )
 
@@ -40,5 +41,6 @@ __all__ = [
     "NullProvider",
     "OpenAIProvider",
     "SentenceTransformerProvider",
+    "StubProvider",
     "get_default_provider",
 ]

@@ -55,6 +55,6 @@ class TestNormalizationReport(unittest.TestCase):
                 "field": "tags",
                 "current": "[ddd, context-map]",
                 "normalized": ["ddd", "context-map"],
-                "reason": "scalar tag string can be normalized to canonical list form",
+                "reason": "scalar tags string can be normalized to canonical list form",
             },
         )

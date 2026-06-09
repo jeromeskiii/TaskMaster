@@ -13,11 +13,7 @@ from dataclasses import dataclass, field
 from difflib import get_close_matches
 from typing import Any
 
-
-class CycleError(ValueError):
-    def __init__(self, cycle: list[str]) -> None:
-        super().__init__(f"Dependency cycle detected: {' -> '.join(cycle)}")
-        self.cycle = cycle
+from .errors import CycleError
 
 
 @dataclass

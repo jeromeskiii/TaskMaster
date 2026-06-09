@@ -46,6 +46,24 @@ class _StubProvider(EmbeddingProvider):
         return np.stack(rows).astype(np.float32)
 
 
+class _NoDimProvider(_StubProvider):
+    @property
+    def dim(self) -> int:
+        raise AssertionError("build() should use embedded vector width, not provider.dim")
+
+    def embed(self, texts):
+        rows = []
+        for t in texts:
+            v = np.zeros(8, dtype=np.float32)
+            for token in set(t.lower().split()):
+                v[int(hashlib.md5(token.encode("utf-8")).hexdigest(), 16) % 8] = 1.0
+            n = np.linalg.norm(v)
+            if n > 0:
+                v = v / n
+            rows.append(v)
+        return np.stack(rows).astype(np.float32)
+
+
 def _skill(name: str, body: str) -> dict:
     return {
         "dir": name,
@@ -105,6 +123,12 @@ def test_index_query_returns_score_and_dir(tmp_path: Path, skills):
     hits = idx.query("postgres vacuum", k=3)
     assert all("dir" in h and "score" in h for h in hits)
     assert len(hits) == 3
+
+
+def test_index_build_does_not_depend_on_provider_dim(tmp_path: Path, skills):
+    idx = EmbeddingIndex(provider=_NoDimProvider(), cache_dir=tmp_path / "emb")
+    idx.build(skills)
+    assert idx.count == 3
 
 
 def test_index_handles_null_provider(tmp_path: Path, skills):

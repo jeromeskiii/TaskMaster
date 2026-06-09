@@ -60,7 +60,7 @@ def _make_server():  # type: ignore[no-untyped-def]
             return json.dumps(report["stats"], indent=2)
         stats = report["stats"]
         lines = [
-            f"TaskMaster Validation Report",
+            "TaskMaster Validation Report",
             f"{stats['total']} skills checked | {stats['valid']} valid | {len(report['issues'])} issues",
         ]
         if report["issues"]:
@@ -79,6 +79,8 @@ def _make_server():  # type: ignore[no-untyped-def]
         for r in results[:max_results]:
             fm = r["frontmatter"]
             name = fm.get("name", r["dir"])
+            lines.append(f"  {name} ({fm.get('category', '?')}) — {fm.get('risk', '?')}")
+        return "\n".join(lines)
 
     # ── list_categories ─────────────────────────────────────────────
     @mcp.tool(name="list_categories", description="List all skill categories and their counts")
@@ -189,8 +191,8 @@ def _make_server():  # type: ignore[no-untyped-def]
     # ── install_skill ───────────────────────────────────────────────
     @mcp.tool(name="install_skill", description="Install skills to an agent runtime")
     def install_skill(target: str, skills: list[str], scope: str = "project", copy: bool = False) -> dict[str, Any]:
-        from taskmaster.install import install_skills
         from taskmaster.errors import InstallError
+        from taskmaster.install import install_skills
         try:
             return install_skills(target=target, scope=scope, skill_names=skills, copy=copy)
         except InstallError as e:

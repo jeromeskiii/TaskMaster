@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from difflib import SequenceMatcher, get_close_matches
 from typing import Any
 
-from .corpus import SkillRecord, _as_list, _flatten_text, _tokenize_text, get_all_skills
+from .corpus import SkillRecord, _as_list, _tokenize_text, get_all_skills
 
 _RELATED_TERMS: dict[str, set[str]] = {
     "debug": {"bug", "bugs", "debugging", "troubleshooting", "incident", "incidents"},

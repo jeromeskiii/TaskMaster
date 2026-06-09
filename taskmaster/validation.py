@@ -9,6 +9,7 @@ from .corpus import SkillRecord, _as_list
 
 REQUIRED_FIELDS = ["name", "description", "category", "risk"]
 VALID_RISKS = {"safe", "medium", "high"}
+RISK_ORDER = {"safe": 0, "medium": 1, "high": 2}
 KNOWN_CATEGORIES = {
     "agent-behavior", "ai", "ai-agents", "ai-research", "automation",
     "backend", "browser-automation", "cloud", "data", "data-ai",
@@ -167,7 +168,7 @@ def score_skill_quality(skill: SkillRecord | dict[str, Any]) -> dict[str, Any]:
     details = {}
 
     frontmatter_bonus = 0
-    for field in ["name", "description", "category", "risk", "source", "date_added", "tags"]:
+    for field in ["name", "description", "category", "risk", "source", "date_added", "tags", "depends_on", "composes_with"]:
         if field in fm and fm[field]:
             frontmatter_bonus += 8 if field in {"name", "description"} else 4
     details["frontmatter_completeness"] = min(frontmatter_bonus, 50)
@@ -285,24 +286,27 @@ def build_hygiene_report(skills: list[SkillRecord] | list[dict[str, Any]]) -> di
 def build_normalization_report(skills: list[SkillRecord] | list[dict[str, Any]]) -> dict[str, Any]:
     records = _coerce_skills(skills)
     changes = []
+    _LIST_FIELDS = ("tags",) + OPTIONAL_LIST_FIELDS
 
     for record in records:
-        raw_tags = record.frontmatter.get("tags")
-        normalized_tags = _as_list(raw_tags)
-        if isinstance(raw_tags, str) and normalized_tags and raw_tags != normalized_tags:
-            changes.append(
-                {
-                    "dir": record.dir,
-                    "field": "tags",
-                    "current": raw_tags,
-                    "normalized": normalized_tags,
-                    "reason": "scalar tag string can be normalized to canonical list form",
-                }
-            )
+        for field in _LIST_FIELDS:
+            raw = record.frontmatter.get(field)
+            normalized = _as_list(raw)
+            if isinstance(raw, str) and normalized and raw != normalized:
+                changes.append(
+                    {
+                        "dir": record.dir,
+                        "field": field,
+                        "current": raw,
+                        "normalized": normalized,
+                        "reason": f"scalar {field} string can be normalized to canonical list form",
+                    }
+                )
 
     stats = {
         "total_skills": len(records),
         "total_changes": len(changes),
-        "tag_normalizations": len(changes),
+        "tag_normalizations": sum(1 for c in changes if c["field"] == "tags"),
+        "list_field_normalizations": sum(1 for c in changes if c["field"] in ("depends_on", "composes_with")),
     }
     return {"stats": stats, "changes": changes}

@@ -16,6 +16,7 @@ import re
 from typing import Any
 
 from .corpus import _as_list, _tokenize_text
+from .validation import RISK_ORDER
 
 _WEIGHT_COSINE = 0.55
 _WEIGHT_KEYWORD = 0.30
@@ -60,14 +61,13 @@ def recommend_skills(
 
 
 def _filter_by_risk(skills: list[dict[str, Any]], max_risk: str | None) -> list[dict[str, Any]]:
-    order = {"safe": 0, "medium": 1, "high": 2}
     if max_risk is None:
         return list(skills)
-    cap = order.get(max_risk, 2)
+    cap = RISK_ORDER.get(max_risk, 2)
     out = []
     for s in skills:
         r = s.get("frontmatter", {}).get("risk")
-        if r is None or order.get(r, 2) <= cap:
+        if r is None or RISK_ORDER.get(r, 2) <= cap:
             out.append(s)
     return out
 

@@ -15,9 +15,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None  # type: ignore
 
-from .provider import EmbeddingProvider, NullProvider, cache_key
+from .provider import EmbeddingProvider, NullProvider
 from .text import build_skill_text
 
 
@@ -57,7 +60,7 @@ class EmbeddingIndex:
     def count(self) -> int:
         return self._meta.count if self._meta else 0
 
-    def _ensure_faiss(self):
+    def _ensure_faiss(self, dim: int):
         if self._index is None:
             try:
                 import faiss  # type: ignore
@@ -67,7 +70,6 @@ class EmbeddingIndex:
                     "Install with: pip install 'taskmaster[semantic]'"
                 ) from e
             self._faiss = faiss
-            dim = self._provider.dim
             self._index = faiss.IndexFlatIP(dim)
         return self._index
 
@@ -85,14 +87,19 @@ class EmbeddingIndex:
         return texts, meta
 
     def build(self, skills: list[dict[str, Any]]) -> None:
-        if isinstance(self._provider, NullProvider) or self._provider.dim == 0:
+        if isinstance(self._provider, NullProvider):
             raise RuntimeError(
                 "Cannot build an embedding index in degraded (NullProvider) mode. "
                 "Install the 'semantic' extra or set TASKMASTER_EMBEDDINGS=stub for tests."
             )
         texts, meta = self._skills_to_texts(skills)
         vectors = self._provider.embed(texts)
-        faiss_index = self._ensure_faiss()
+        if vectors.shape[1] == 0:
+            raise RuntimeError(
+                "Cannot build an embedding index from zero-width vectors. "
+                "Ensure the provider can embed texts into a real vector space."
+            )
+        faiss_index = self._ensure_faiss(vectors.shape[1])
         faiss_index.reset()
         faiss_index.add(vectors)
         self._dir_to_pos = {s["dir"]: i for i, s in enumerate(skills)}
@@ -101,7 +108,7 @@ class EmbeddingIndex:
         self._meta = IndexMeta(
             provider=self._provider.name,
             model_id=self._provider.model_id,
-            dim=self._provider.dim,
+            dim=int(vectors.shape[1]),
             count=len(skills),
             built_at=time.time(),
         )
@@ -114,7 +121,7 @@ class EmbeddingIndex:
         assert self._meta is not None
         text = build_skill_text(skill)
         vector = self._provider.embed([text])
-        self._ensure_faiss().add(vector)
+        self._ensure_faiss(vector.shape[1]).add(vector)
         self._dir_to_pos[skill["dir"]] = self._meta.count
         self._manifest.update(skill["dir"], self._hash(text), 0.0)
         self._meta.count += 1
@@ -124,7 +131,7 @@ class EmbeddingIndex:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         assert self._meta is not None
         import faiss  # type: ignore
-        faiss.write_index(self._ensure_faiss(), str(self._cache_dir / "index.faiss"))
+        faiss.write_index(self._ensure_faiss(self._meta.dim), str(self._cache_dir / "index.faiss"))
         (self._cache_dir / "meta.json").write_text(
             json.dumps(self._meta.__dict__, indent=2), encoding="utf-8"
         )
@@ -135,8 +142,6 @@ class EmbeddingIndex:
     def load(self) -> None:
         import faiss  # type: ignore
         meta_path = self._cache_dir / "meta.json"
-        manifest_path = self._cache_dir / "index_path"  # safety: see below
-        # Correct path:
         manifest_path = self._cache_dir / "manifest.json"
         if not (self._cache_dir / "index.faiss").exists() or not meta_path.exists():
             raise FileNotFoundError(f"No index at {self._cache_dir}")
