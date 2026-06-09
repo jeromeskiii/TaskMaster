@@ -62,6 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
     recommend_p.add_argument("--max", type=int, default=5)
     recommend_p.add_argument("--max-risk", choices=["safe", "medium", "high"])
     recommend_p.add_argument("--json", action="store_true")
+    recommend_p.add_argument(
+        "--keyword-only",
+        action="store_true",
+        help="Skip embedding index build; use keyword scoring only",
+    )
 
     compose_p = sub.add_parser("compose", help="Compose a dependency-ordered plan")
     compose_p.add_argument("skills", nargs="+", help="Skill names or directories")
@@ -120,11 +125,12 @@ def _cmd_embed(args) -> int:
 def _cmd_recommend(args) -> int:
     skills = taskmaster.get_all_skills()
     index = None
-    try:
-        index, _ = _embedding_index(skills, rebuild=False)
-    except RuntimeError:
-        index = None
-    
+    if not args.keyword_only:
+        try:
+            index, _ = _embedding_index(skills, rebuild=False)
+        except RuntimeError:
+            index = None
+
     from taskmaster.recommend import recommend_skills
     results = recommend_skills(
         args.task, skills=skills, index=index, k=args.max, max_risk=args.max_risk

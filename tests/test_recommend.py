@@ -87,3 +87,19 @@ def test_recommend_json_includes_degraded_flag_per_result():
         assert "degraded" in item
         # Base env: no [semantic] extra, so every result should be degraded
         assert item["degraded"] is True
+
+
+def test_recommend_keyword_only_flag_skips_embedding_index():
+    """--keyword-only must print the degraded banner without trying to build an index."""
+    import contextlib
+    import io
+    from taskmaster import cli
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = cli.main(
+            ["recommend", "debug a production API timeout", "--max", "3", "--keyword-only"]
+        )
+    assert rc == 0
+    out = buf.getvalue()
+    assert "degraded mode" in out

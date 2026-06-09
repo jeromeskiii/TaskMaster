@@ -238,6 +238,16 @@ python3 taskmaster.py compose postgres-tuning error-detective --json
 
 The recommender combines semantic similarity (0.55), keyword overlap (0.30), and tag overlap (0.15). When the embedding extra is not installed, it falls back to keyword-only and tags every result with `degraded: true` so the caller can see the lower-quality mode.
 
+#### Note on degraded mode
+
+When the `[semantic]` extra is not installed, `recommend` falls back to keyword-only scoring. This is a best-effort mode — results may be noisy for short queries (e.g. a skill mentioning "API" in its description can match a query that just says "API" without being relevant to what the user actually wants to do). For production routing, install the semantic extra:
+
+```bash
+pip install "taskmaster[semantic]"
+```
+
+You can also force keyword-only mode explicitly with `--keyword-only` (useful in CI or when the embedding index is intentionally absent).
+
 The composer reads the optional `depends_on` frontmatter list, returns a topologically ordered plan, and surfaces missing dependencies with closest-match suggestions. Cycles raise an error.
 
 ### Optional Frontmatter Fields
