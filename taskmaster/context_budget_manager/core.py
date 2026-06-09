@@ -12,8 +12,9 @@ from .tokens import estimate_tokens
 class ContextBudgetManager:
     """Compress context while preserving originals behind retrieval handles."""
 
-    def __init__(self, db_path: str | Path = ".cbm/context.db", default_max_chars: int = 4_000) -> None:
-        self.store = OriginalStore(db_path)
+    def __init__(self, db_path: str | Path | None = None, default_max_chars: int = 4_000) -> None:
+        from taskmaster import CACHE_DIR
+        self.store = OriginalStore(db_path or (CACHE_DIR / "context.db"))
         self.default_max_chars = default_max_chars
 
     def compress(
