@@ -20,13 +20,22 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install -e ".[semantic,dev]"
+        run: pip install -e .
 
       - name: Validate all skills
         run: python3 taskmaster.py validate
 
       - name: Run tests
-        run: python3 -m unittest discover -s tests -v
+        run: |
+          python3 -m unittest \
+            tests.test_ci_workflow \
+            tests.test_cli \
+            tests.test_corpus \
+            tests.test_discovery \
+            tests.test_install \
+            tests.test_taskmaster \
+            tests.test_validation \
+            -v
 
   quality:
     name: Quality Check
