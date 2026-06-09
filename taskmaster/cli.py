@@ -13,6 +13,8 @@ from typing import Callable
 
 import taskmaster
 
+SECONDS_PER_DAY = 86400.0
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -426,7 +428,7 @@ def _cmd_context(args) -> int:
             return 0
 
         if args.context_command == "prune":
-            deleted = manager.prune(args.max_age_days * 86400.0)
+            deleted = manager.prune(args.max_age_days * SECONDS_PER_DAY)
             print(f"Successfully pruned {deleted} context payload(s).")
             return 0
     except Exception as exc:

@@ -118,3 +118,22 @@ def test_cmd_context_dispatch_prune(capsys):
         assert "Successfully pruned 5 context payload(s)." in captured.out.strip()
 
 
+def test_seconds_per_day_constant():
+    assert hasattr(cli, "SECONDS_PER_DAY")
+    assert cli.SECONDS_PER_DAY == 86400.0
+
+
+def test_cmd_context_dispatch_error(capsys):
+    from unittest.mock import patch
+    with patch("taskmaster.context_budget_manager.core.ContextBudgetManager") as MockCBM:
+        MockCBM.return_value.stats.side_effect = Exception("DB Connection Refused")
+        parser = cli.build_parser()
+        args = parser.parse_args(["context", "stats"])
+        
+        result = cli._cmd_context(args)
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "cbm error: DB Connection Refused" in captured.err
+
+
+
