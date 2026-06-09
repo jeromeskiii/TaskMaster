@@ -39,6 +39,9 @@ openai = [
 mcp = [
     "mcp>=1.0",
 ]
+dev = [
+    "pytest>=8.0",
+]
 all = [
     "taskmaster[semantic,mcp,openai]",
 ]
