@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 from typing import Callable
 
 import taskmaster
@@ -72,6 +71,13 @@ def build_parser() -> argparse.ArgumentParser:
     compose_p.add_argument("skills", nargs="+", help="Skill names or directories")
     compose_p.add_argument("--json", action="store_true")
 
+    forge_p = sub.add_parser("forge", help="Create an agent-ready build plan")
+    forge_p.add_argument("task", help="Task or feature description")
+    forge_p.add_argument("--max", type=int, default=5, help="Max skills to recommend")
+    forge_p.add_argument("--max-risk", choices=["safe", "medium", "high"])
+    forge_p.add_argument("--json", action="store_true", help="Print JSON instead of Markdown")
+    forge_p.add_argument("--out", help="Write a .taskmaster-style workspace to this directory")
+
     install_p = sub.add_parser("install", help="Install skills to an agent runtime")
     install_p.add_argument("target", choices=["claude", "qwen", "cursor", "all"])
     install_p.add_argument("--scope", choices=["user", "project"], default="project")
@@ -94,12 +100,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _embedding_index(skills, *, rebuild: bool):
+    from taskmaster.corpus import CACHE_DIR
     from taskmaster.embeddings import get_default_provider
     from taskmaster.embeddings.index import EmbeddingIndex
     from taskmaster.embeddings.provider import cache_key
 
     provider = get_default_provider()
-    cache_dir = Path(".taskmaster_cache") / "embeddings" / cache_key(provider)
+    cache_dir = CACHE_DIR / "embeddings" / cache_key(provider)
     index = EmbeddingIndex(provider=provider, cache_dir=cache_dir)
     if not rebuild and (cache_dir / "index.faiss").exists():
         try:
@@ -135,7 +142,7 @@ def _cmd_recommend(args) -> int:
     results = recommend_skills(
         args.task, skills=skills, index=index, k=args.max, max_risk=args.max_risk
     )
-    
+
     if args.json:
         print(json.dumps([
             {"name": r["skill"]["frontmatter"].get("name", r["skill"]["dir"]),
@@ -151,7 +158,7 @@ def _cmd_recommend(args) -> int:
     for i, r in enumerate(results, 1):
         fm = r["skill"]["frontmatter"]
         print(f"{i}. {fm.get('name', r['skill']['dir'])}")
-    
+
     if results:
         print("\nWhy:")
         # Show top reasons from the first result
@@ -184,11 +191,38 @@ def _cmd_compose(args) -> int:
         print("\nExecution plan:")
         for i, step in enumerate(plan.steps, 1):
             print(f"{i}. {step['name']}")
-        
+
         if plan.warnings:
             print("\nWarnings:")
             for w in plan.warnings:
                 print(f"- {w}")
+    return 0
+
+
+def _cmd_forge(args) -> int:
+    skills = taskmaster.get_all_skills()
+    index = None
+    try:
+        index, _ = _embedding_index(skills, rebuild=False)
+    except RuntimeError:
+        index = None
+    from taskmaster.forge import create_forge_plan, write_forge_workspace
+
+    plan = create_forge_plan(
+        args.task,
+        skills=skills,
+        index=index,
+        max_skills=args.max,
+        max_risk=args.max_risk,
+    )
+    if args.out:
+        output_dir = write_forge_workspace(plan, args.out)
+        print(f"Forge workspace written to {output_dir}")
+        return 0
+    if args.json:
+        print(json.dumps(plan.to_dict(), indent=2))
+        return 0
+    print(plan.to_markdown())
     return 0
 
 
@@ -294,8 +328,8 @@ def _cmd_mcp(args) -> int:
 
 
 def _cmd_install(args) -> int:
-    from taskmaster.install import install_skills
     from taskmaster.errors import InstallError, InstallUsageError
+    from taskmaster.install import install_skills
     skill_names = args.skills.split(",") if args.skills else None
     try:
         results = install_skills(
@@ -317,8 +351,8 @@ def _cmd_install(args) -> int:
 
 
 def _cmd_uninstall(args) -> int:
-    from taskmaster.install import uninstall_skills
     from taskmaster.errors import InstallError
+    from taskmaster.install import uninstall_skills
     try:
         results = uninstall_skills(target=args.target, scope=args.scope)
         for target, info in results.items():
@@ -346,6 +380,7 @@ _DISPATCH: dict[str, Callable[..., int]] = {
     "embed": _cmd_embed,
     "recommend": _cmd_recommend,
     "compose": _cmd_compose,
+    "forge": _cmd_forge,
     "mcp": _cmd_mcp,
     "install": _cmd_install,
     "uninstall": _cmd_uninstall,
