@@ -62,3 +62,87 @@ class TestCompatibilityEntryPoint(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "True")
+
+
+class TestMakefileWrappers(unittest.TestCase):
+    def test_test_wrapper_uses_repo_virtualenv(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            ["make", "-n", "test"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), ".venv/bin/python -m pytest tests/ -v")
+
+    def test_install_wrapper_uses_repo_virtualenv(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            ["make", "-n", "install"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            ".venv/bin/python -m pip install -e \".[all]\"",
+        )
+
+    def test_search_wrapper_preserves_multi_word_query(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            ["make", "-n", "search", "q=code review"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            ".venv/bin/python taskmaster.py search \"code review\"",
+        )
+
+    def test_compose_wrapper_splits_comma_separated_skills(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            ["make", "-n", "compose", "s=bug-hunter,error-detective"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            ".venv/bin/python taskmaster.py compose bug-hunter error-detective",
+        )
+
+
+class TestMcpCompatibility(unittest.TestCase):
+    def test_legacy_mcp_serve_alias_dispatches_to_mcp_handler(self):
+        captured = {}
+
+        def fake_handler(args):
+            captured["args"] = args
+            return 0
+
+        original = cli._DISPATCH["mcp-serve"]
+        cli._DISPATCH["mcp-serve"] = fake_handler
+        try:
+            result = cli.main(["mcp-serve"])
+        finally:
+            cli._DISPATCH["mcp-serve"] = original
+
+        self.assertEqual(result, 0)
+        args = captured["args"]
+        self.assertEqual(args.command, "mcp-serve")
+        self.assertEqual(args.mcp_command, "serve")

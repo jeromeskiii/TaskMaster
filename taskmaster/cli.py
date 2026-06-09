@@ -91,11 +91,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     mcp_p = sub.add_parser("mcp", help="MCP server commands")
     mcp_sub = mcp_p.add_subparsers(dest="mcp_command", help="MCP commands")
-    mcp_serve_p = mcp_sub.add_parser("serve", help="Start MCP server for agent-to-agent access")
-    mcp_serve_p.add_argument("--sse", action="store_true", help="Use SSE transport instead of stdio")
-    mcp_serve_p.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
-    mcp_serve_p.add_argument("--port", type=int, default=8000, help="Port for SSE transport (default: 8000)")
+    _add_mcp_serve_args(
+        mcp_sub.add_parser("serve", help="Start MCP server for agent-to-agent access")
+    ).set_defaults(mcp_command="serve")
 
+    _add_mcp_serve_args(
+        sub.add_parser("mcp-serve", help="Deprecated alias for 'mcp serve'")
+    ).set_defaults(mcp_command="serve")
+
+    return parser
+
+
+def _add_mcp_serve_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument("--sse", action="store_true", help="Use SSE transport instead of stdio")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8000, help="Port for SSE transport (default: 8000)")
     return parser
 
 
@@ -151,7 +161,7 @@ def _cmd_recommend(args) -> int:
         ], indent=2))
         return 0
 
-    if index is None:
+    if results and any(r["degraded"] for r in results):
         print("  (degraded mode — semantic embeddings unavailable)")
 
     print("\nRecommended skills:")
@@ -382,6 +392,7 @@ _DISPATCH: dict[str, Callable[..., int]] = {
     "compose": _cmd_compose,
     "forge": _cmd_forge,
     "mcp": _cmd_mcp,
+    "mcp-serve": _cmd_mcp,
     "install": _cmd_install,
     "uninstall": _cmd_uninstall,
 }

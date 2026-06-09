@@ -1,0 +1,12 @@
+{
+  "output": {
+    "style": "xml",
+    "filePath": "repomix-output.xml",
+    "removeComments": false,
+    "removeEmptyLines": false,
+    "showLineNumbers": false
+  },
+  "security": {
+    "enableSecurityCheck": false
+  }
+}

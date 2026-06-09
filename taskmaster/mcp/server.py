@@ -6,8 +6,8 @@ query the skill catalog at runtime.
 
 Usage::
 
-    taskmaster mcp-serve           # stdio transport (default)
-    taskmaster mcp-serve --sse     # SSE transport on port 8000
+    taskmaster mcp serve           # stdio transport (default)
+    taskmaster mcp serve --sse     # SSE transport on port 8000
 
 Requires the ``mcp`` extra (``pip install 'taskmaster[mcp]'``).
 """
@@ -240,7 +240,7 @@ def tool_recommend_skills(task: str, max_results: int = 5, max_risk: str | None 
     if not results:
         return "No recommendations found."
     lines = [f"Recommendations for '{task}':"]
-    if index is None:
+    if results and any(r["degraded"] for r in results):
         lines.append("  (degraded mode — semantic embeddings unavailable)")
     for r in results:
         fm = r["skill"]["frontmatter"]

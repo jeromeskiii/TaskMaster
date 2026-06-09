@@ -90,7 +90,7 @@ Add a `.mcp.json` at your project root (or `~/.claude/mcp.json` for user scope):
 }
 ```
 
-Restart Claude Code. The TaskMaster tools (`validate_all`, `search_skills`, `list_skills`, `list_categories`, `get_skill`, `suggest`, `recommend_skills`, `compose_skills`, `check_skill`, `validate_skill`, `corpus_stats`, `install_skill`) should appear in the tool picker.
+Restart Claude Code. The TaskMaster tools (`validate_all`, `search_skills`, `list_categories`, `get_skill`, `suggest`, `recommend_skills`, `compose_skills`, `check_skill`, `validate_skill`, `corpus_stats`, `install_skill`) should appear in the tool picker.
 
 ### Cursor
 
@@ -107,7 +107,7 @@ Add to `~/.cursor/mcp.json`:
 }
 ```
 
-Restart Cursor. The same 12 tools become available.
+Restart Cursor. The same 11 tools become available.
 
 ## Structure
 
@@ -204,9 +204,9 @@ python3 taskmaster.py compose error-detective distributed-tracing incident-respo
 ### 3. Agent Integration (MCP)
 Expose the 269-skill catalog as an MCP server.
 ```bash
-python3 taskmaster.py mcp-serve
+python3 taskmaster.py mcp serve
 ```
-Exposes tools like `search_skills`, `recommend_skills`, `compose_skills`, `get_skill`, `list_skills`, and `install_skill`.
+Exposes tools like `search_skills`, `recommend_skills`, `compose_skills`, `get_skill`, `list_categories`, and `install_skill`.
 
 ### 4. Installation
 Install or symlink skills into local agent runtimes (Claude, Cursor, Qwen).

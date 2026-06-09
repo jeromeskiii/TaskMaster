@@ -13,22 +13,33 @@ class TestInstall(unittest.TestCase):
         self.temp_dir = TemporaryDirectory()
         self.old_cwd = os.getcwd()
         os.chdir(self.temp_dir.name)
-        
+        self.project_root = Path(self.temp_dir.name)
+
         # Create a mock skills structure
         (Path("skill-a")).mkdir()
         (Path("skill-a") / "SKILL.md").write_text("---\nname: skill-a\n---")
-        
+
         (Path("skill-b")).mkdir()
         (Path("skill-b") / "SKILL.md").write_text("---\nname: skill-b\n---")
-        
+
         self.mock_skills = [
-            {"dir": "skill-a", "frontmatter": {"name": "skill-a"}},
-            {"dir": "skill-b", "frontmatter": {"name": "skill-b"}},
+            {
+                "dir": "skill-a",
+                "path": "skill-a/SKILL.md",
+                "frontmatter": {"name": "skill-a"},
+            },
+            {
+                "dir": "skill-b",
+                "path": "skill-b/SKILL.md",
+                "frontmatter": {"name": "skill-b"},
+            },
         ]
-        
-        # Mock TARGET_PATHS for testing
+
+        # Mock project root and target paths for testing
         import taskmaster.install
+        self.original_project_root = taskmaster.install.PROJECT_ROOT
         self.original_targets = taskmaster.install.TARGET_PATHS
+        taskmaster.install.PROJECT_ROOT = self.project_root
         taskmaster.install.TARGET_PATHS = {
             "user": {
                 "claude": "mock-user/claude",
@@ -44,6 +55,7 @@ class TestInstall(unittest.TestCase):
 
     def tearDown(self):
         import taskmaster.install
+        taskmaster.install.PROJECT_ROOT = self.original_project_root
         taskmaster.install.TARGET_PATHS = self.original_targets
         os.chdir(self.old_cwd)
         self.temp_dir.cleanup()
@@ -55,17 +67,35 @@ class TestInstall(unittest.TestCase):
             skill_names=["skill-a"],
             all_skills=self.mock_skills
         )
-        
+
         dest_path = Path("mock-project/claude")
         self.assertTrue(dest_path.exists())
         self.assertTrue((dest_path / "skill-a").is_symlink())
         self.assertTrue((dest_path / ".taskmaster-manifest.json").exists())
-        
+
         with open(dest_path / ".taskmaster-manifest.json") as f:
             manifest = json.load(f)
             self.assertEqual(manifest["target"], "claude")
             self.assertEqual(manifest["scope"], "project")
             self.assertEqual(len(manifest["skills"]), 1)
+            self.assertTrue(Path(manifest["skills"][0]["source_path"]).is_absolute())
+            self.assertTrue(Path(manifest["skills"][0]["link_path"]).is_absolute())
+
+    def test_install_project_scope_ignores_cwd(self):
+        Path("elsewhere").mkdir()
+        os.chdir("elsewhere")
+
+        install_skills(
+            target="claude",
+            scope="project",
+            skill_names=["skill-a"],
+            all_skills=self.mock_skills
+        )
+
+        dest_path = self.project_root / "mock-project/claude"
+        self.assertTrue(dest_path.exists())
+        self.assertTrue((dest_path / "skill-a").is_symlink())
+        self.assertFalse((Path.cwd() / "mock-project/claude/skill-a").exists())
 
     def test_install_all_targets(self):
         results = install_skills(
@@ -98,12 +128,32 @@ class TestInstall(unittest.TestCase):
             skill_names=["skill-a"],
             all_skills=self.mock_skills
         )
-        
+
         results = uninstall_skills(target="claude", scope="project")
         self.assertEqual(results["claude"]["status"], "uninstalled")
         self.assertEqual(results["claude"]["count"], 1)
-        
+
         dest_path = Path("mock-project/claude")
+        self.assertFalse((dest_path / "skill-a").exists())
+        self.assertFalse((dest_path / ".taskmaster-manifest.json").exists())
+        self.assertTrue((self.project_root / "skill-a").exists())
+
+    def test_uninstall_project_scope_ignores_cwd(self):
+        install_skills(
+            target="claude",
+            scope="project",
+            skill_names=["skill-a"],
+            all_skills=self.mock_skills
+        )
+
+        Path("elsewhere").mkdir()
+        os.chdir("elsewhere")
+
+        results = uninstall_skills(target="claude", scope="project")
+        self.assertEqual(results["claude"]["status"], "uninstalled")
+        self.assertEqual(results["claude"]["count"], 1)
+
+        dest_path = self.project_root / "mock-project/claude"
         self.assertFalse((dest_path / "skill-a").exists())
         self.assertFalse((dest_path / ".taskmaster-manifest.json").exists())
 

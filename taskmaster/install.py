@@ -29,6 +29,8 @@ TARGET_PATHS = {
     },
 }
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 def _closest_matches(needle: str, haystack: list[str], n: int = 3) -> list[str]:
     """Return up to ``n`` closest matches for ``needle`` in ``haystack``.
@@ -38,6 +40,20 @@ def _closest_matches(needle: str, haystack: list[str], n: int = 3) -> list[str]:
     "temporal-python-pro") surface as suggestions.
     """
     return get_close_matches(needle, haystack, n=n, cutoff=0.3)
+
+
+def _resolve_project_path(path: str | Path) -> Path:
+    resolved = Path(path)
+    if resolved.is_absolute():
+        return resolved
+    return PROJECT_ROOT / resolved
+
+
+def _skill_source_dir(skill: dict[str, Any]) -> Path:
+    source_path = skill.get("path")
+    if source_path:
+        return _resolve_project_path(source_path).parent
+    return _resolve_project_path(skill["dir"])
 
 
 def install_skills(
@@ -105,7 +121,9 @@ def install_skills(
         dest_path_str = TARGET_PATHS[scope][t]
         if scope == "user":
             dest_path_str = os.path.expanduser(dest_path_str)
-        dest_path = Path(dest_path_str)
+            dest_path = Path(dest_path_str)
+        else:
+            dest_path = _resolve_project_path(dest_path_str)
 
         try:
             dest_path.mkdir(parents=True, exist_ok=True)
@@ -115,9 +133,7 @@ def install_skills(
         installed_info = []
         for skill in selected_skills:
             skill_dir_name = skill["dir"]
-            # The source is relative to the project root
-            # We assume we are running from the project root
-            source_path = Path(skill_dir_name).absolute()
+            source_path = _skill_source_dir(skill)
             link_path = dest_path / skill_dir_name
 
             if link_path.exists() or link_path.is_symlink():
@@ -138,14 +154,16 @@ def install_skills(
 
             installed_info.append({
                 "name": skill.get("frontmatter", {}).get("name", skill_dir_name),
-                "source_path": str(source_path),
+                "source_path": str(source_path.resolve()),
+                "skill_dir": skill_dir_name,
+                "installed_path": str(link_path),
                 "link_path": str(link_path),
             })
 
         manifest_path = dest_path / ".taskmaster-manifest.json"
         manifest = {
             "installed_at": datetime.now().isoformat(),
-            "source_root": str(Path.cwd()),
+            "source_root": str(PROJECT_ROOT),
             "scope": scope,
             "target": t,
             "skills": installed_info,
@@ -179,7 +197,9 @@ def uninstall_skills(target: str, scope: str) -> dict[str, Any]:
         dest_path_str = TARGET_PATHS[scope][t]
         if scope == "user":
             dest_path_str = os.path.expanduser(dest_path_str)
-        dest_path = Path(dest_path_str)
+            dest_path = Path(dest_path_str)
+        else:
+            dest_path = _resolve_project_path(dest_path_str)
 
         manifest_path = dest_path / ".taskmaster-manifest.json"
         if not manifest_path.exists():
@@ -195,12 +215,18 @@ def uninstall_skills(target: str, scope: str) -> dict[str, Any]:
 
         removed = 0
         for skill in manifest.get("skills", []):
-            link_path = Path(skill["link_path"])
-            if link_path.exists() or link_path.is_symlink():
-                if link_path.is_symlink() or link_path.is_file():
-                    link_path.unlink()
+            raw_installed_path = skill.get("installed_path") or skill.get("link_path")
+            if raw_installed_path:
+                installed_path = Path(raw_installed_path)
+                if not installed_path.is_absolute():
+                    installed_path = manifest_path.parent / installed_path
+            else:
+                installed_path = manifest_path.parent / skill.get("skill_dir", "")
+            if installed_path.exists() or installed_path.is_symlink():
+                if installed_path.is_symlink() or installed_path.is_file():
+                    installed_path.unlink()
                 else:
-                    shutil.rmtree(link_path)
+                    shutil.rmtree(installed_path)
                 removed += 1
 
         manifest_path.unlink()
