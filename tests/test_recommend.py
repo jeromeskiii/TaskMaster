@@ -52,8 +52,9 @@ def test_recommend_degraded_flag_false_when_keyword_only():
     assert results[0].get("degraded") is True
 
 
-def test_recommend_degraded_banner_in_cli_output():
+def test_recommend_degraded_banner_in_cli_output(monkeypatch):
     """The recommend CLI must print the degraded banner when no embedding index is available."""
+    monkeypatch.setenv("TASKMASTER_EMBEDDINGS", "null")
     import contextlib
     import io
     from taskmaster import cli
@@ -67,8 +68,9 @@ def test_recommend_degraded_banner_in_cli_output():
     assert "Recommended skills:" in out
 
 
-def test_recommend_json_includes_degraded_flag_per_result():
+def test_recommend_json_includes_degraded_flag_per_result(monkeypatch):
     """JSON output must include a 'degraded' field per result."""
+    monkeypatch.setenv("TASKMASTER_EMBEDDINGS", "null")
     import contextlib
     import io
     import json

@@ -34,7 +34,8 @@ def test_get_skill_missing_returns_error():
     assert result["error"] == "not_found"
 
 
-def test_recommend_skills_degraded_in_base_env():
+def test_recommend_skills_degraded_in_base_env(monkeypatch):
+    monkeypatch.setenv("TASKMASTER_EMBEDDINGS", "null")
     from taskmaster.mcp.server import tool_recommend_skills
     result = tool_recommend_skills("debug a production API timeout", max_results=3)
     assert isinstance(result, str)
