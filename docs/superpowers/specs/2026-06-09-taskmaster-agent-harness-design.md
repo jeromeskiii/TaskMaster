@@ -307,6 +307,19 @@ taskmaster run "summarize the test failures" \
     "compressed_tokens": int,
     "saved_tokens": int,
   } | None,
+  "telemetry": {                              # v1.1 only; null in v1
+    "fallback_events": int,
+    "refusal_events": int,
+    "fallback_rate_window_ms": int,
+    "fallback_rate": float,
+  } | None,
+  "policy": {                                 # v1.1 only; null in v1
+    "accuracy_budget": "strict" | "balanced" | "aggressive",
+    "tier": str,
+    "provider": str,
+    "model": str,
+    "fallback_used": bool,
+  } | None,
 }
 ```
 
@@ -331,6 +344,167 @@ taskmaster[anthropic]`").
 work). The `[agent]` extra only adds `httpx` for the Ollama provider
 and for cbm's own (optional) HTTP probes; cbm itself runs locally on
 SQLite and has no external dependencies.
+
+## v1.1 — Policy layer (optional)
+
+v1 ships without the policy layer; v1.1 adds it. The layer is a thin
+domain adapter over the external package
+[`policy-driven-compute-service`](../README.md) (already on disk at
+`/Users/ohmskiii/Documents/Builds/AI_and_Agents/QA_Policy/Policy/policy-driven-compute-service`).
+We do **not** reimplement the DDD aggregate — we consume its
+`WorkloadPolicy`, `AccuracyBudget`, `MemoryManager`, `TelemetryLayer`,
+and exceptions directly.
+
+### Why
+
+The v1 harness has no structured notion of *workload intent* and
+*provider fallback*. The user has to know that `--provider openai` is
+the fast/expensive tier and `--provider ollama` is the slow/cheap one,
+and there's no telemetry that shows when a provider falls back. The
+policy-driven compute package gives us a battle-tested vocabulary for
+exactly that: `WorkloadPolicy` is the contract, `AccuracyBudget`
+classes the trade-off, `MemoryManager` enforces capacity invariants,
+`TelemetryLayer` records fallback events, and `CapacityExceededError`
+is the failure mode the agent can reason about.
+
+### What v1.1 adds (5 things, behind a new `[policy]` extra)
+
+1. **`agent/policy.py`** — adapter that translates between the
+   harness's own `TaskPolicy` value object and the external
+   `policy_compute.WorkloadPolicy`. The external model carries
+   `accuracy_budget`, `latency_slo_ms`, `estimated_vram_bytes`; for
+   the harness the "VRAM" field is reinterpreted as
+   `estimated_context_tokens` and `latency_slo_ms` is reinterpreted
+   as `max_wall_clock_ms` (a soft cap, separate from `max_cost_usd`).
+   The adapter is the only place that knows about the translation —
+   the rest of the runtime only sees `TaskPolicy`. The runtime
+   accepts either a `TaskPolicy` (v1.1) **or** the loose v1 kwargs.
+   v1 callers keep working; v1.1 callers opt in.
+
+2. **`agent/provider_selector.py`** — `ProviderSelector` is a
+   `policy_compute.interfaces.AcceleratorEngine` whose "execution
+   paths" are our LLM providers. Mapping is data-driven via
+   `tiers.yaml`:
+
+   ```yaml
+   tiers:
+     - name: opus
+       accuracy_budget: strict
+       provider: anthropic
+       model: claude-3-5-opus-latest
+     - name: sonnet
+       accuracy_budget: balanced
+       provider: anthropic
+       model: claude-3-5-sonnet-latest
+     - name: haiku
+       accuracy_budget: balanced
+       provider: anthropic
+       model: claude-3-5-haiku-latest
+     - name: gpt4o
+       accuracy_budget: balanced
+       provider: openai
+       model: gpt-4o
+     - name: gpt4o-mini
+       accuracy_budget: aggressive
+       provider: openai
+       model: gpt-4o-mini
+     - name: llama3
+       accuracy_budget: balanced
+       provider: ollama
+       model: llama3.1
+   ```
+
+   `select_path(WorkloadPolicy, available_tiers)` returns the best
+   (tier, provider, model) tuple for the given accuracy budget and
+   what's installed. `execute()` returns an `LLMProvider` instance.
+
+3. **`agent/context_guard.py`** — `ContextBudgetGuard` is a
+   `policy_compute.interfaces.MemoryManager` whose capacity unit is
+   "context tokens" (mapped 1:1 to cbm's `estimate_tokens`). Reserves
+   a `ContextReservation` at the start of each run, rejects with
+   `CapacityExceededError` when a skill-load would overflow, and
+   **defines the fallback** for that case: drop the lowest-priority
+   skill, retry once, then return `CapacityExceeded`. This replaces
+   the v1 silent overflow.
+
+4. **`agent/telemetry.py`** — `RunTelemetry` is a
+   `policy_compute.interfaces.TelemetryLayer` that records
+   `fallback_events` (provider fallback), `refusal_events`
+   (`RiskRefused` from the tool dispatcher), and exposes
+   `fallback_rate(window_ms=...)` for the run.
+
+5. **Wire all three into `runtime.run`**: the v1.1 loop resolves a
+   `WorkloadPolicy` once, selects a provider via `ProviderSelector`,
+   guards skill-load via `ContextBudgetGuard`, and records outcomes
+   via `RunTelemetry`. The v1 loop is unchanged for v1 callers
+   (defaults preserve behavior).
+
+### What v1.1 explicitly does **not** do
+
+- Does **not** use the async `DefaultComputeEngine.submit()` /
+  `get_outcome()` queue. The harness is a single-shot CLI; we use the
+  *interfaces* (`MemoryManager`, `AcceleratorEngine`, `TelemetryLayer`),
+  not the orchestrator.
+- Does **not** import the package's "tier" names (`fp4`, `bf16`,
+  …). Our `tiers.yaml` uses provider-tier names (`sonnet`,
+  `gpt4o-mini`, …); the `Tier` value object is consumed generically.
+- Does **not** use `BatchingController` or `Reservation` aggregates.
+  Both are deferred — the harness is single-workload.
+- Does **not** require Python 3.11 (policy-driven-compute-service
+  does); v1.1 is gated to a 3.11+ runtime check at import time and
+  raises a clear error on 3.10.
+
+### New CLI flags (v1.1 only)
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--policy-yaml` | bundled `tiers.yaml` | path to a custom tier mapping |
+| `--accuracy-budget` | `balanced` | `strict` / `balanced` / `aggressive` |
+| `--max-context-tokens` | 32000 | enforced by `ContextBudgetGuard`; replaces v1's `--max-skill-tokens` (which is kept as a soft hint) |
+| `--fallback-window-ms` | 5000 | window for `fallback_rate` reporting |
+
+### New dependencies & packaging
+
+```toml
+policy = ["policy-driven-compute-service>=0.1.0"]  # new
+all = ["taskmaster[semantic,mcp,openai,anthropic,agent,policy]"]  # extend
+```
+
+The package is installed from PyPI once published, or from a local
+path during development:
+
+```bash
+pip install -e /Users/ohmskiii/Documents/Builds/AI_and_Agents/QA_Policy/Policy/policy-driven-compute-service
+pip install -e ".[policy]"
+```
+
+`taskmaster` itself targets Python 3.10. The `[policy]` extra requires
+3.11+; the import is lazy (`from policy_compute import ...` only when
+the v1.1 code path is hit) and raises a friendly error on 3.10.
+
+### New tests (v1.1 only)
+
+7. **`test_policy.py`** — adapter round-trip: CLI args → `WorkloadPolicy`,
+   invalid args raise `InvalidPolicyError`.
+
+8. **`test_provider_selector.py`** — given a `WorkloadPolicy` and a
+   fake `available_tiers`, returns the right tier; unknown provider in
+   `tiers.yaml` raises `TierNotAvailableError`; `--accuracy-budget
+   strict` selects the strict tier even when balanced is available.
+
+9. **`test_context_guard.py`** — `reserve()` succeeds under capacity;
+   over-capacity raises `CapacityExceededError`; the defined fallback
+   (drop lowest-priority skill) shrinks the request and retries.
+
+10. **`test_telemetry.py`** — `record_fallback()` increments counter;
+    `fallback_rate(window_ms=...)` returns a float in [0, 1] and is
+    windowed on `time.monotonic()`, not lifetime.
+
+11. **`test_runtime_v1_1.py`** — v1 defaults produce `telemetry: None`
+    and `policy: None`; v1.1 path produces populated `telemetry` and
+    `policy` blocks. Provider fallback is exercised: a forced
+    `RuntimeError` on the first provider triggers one
+    `fallback_event` and a successful run.
 
 ## Testing strategy
 
@@ -393,11 +567,14 @@ Coverage target: ≥ 90% for the new package.
 |---|---|
 | LLM providers change SDK shapes | Each provider has a single translation shim; tests use recorded cassettes, not live calls, so SDK drift is caught locally. |
 | Tool-call loops (model keeps calling the same tool) | Step cap + tool-call deduplication (consecutive identical calls are short-circuited with a "this didn't help" message). |
-| Skill context overflow | Budget cap with deterministic drop order; `skills_dropped` is reported in `RunResult` so the user can adjust `--max-skill-tokens`. |
+| Skill context overflow | Budget cap with deterministic drop order; `skills_dropped` is reported in `RunResult` so the user can adjust `--max-skill-tokens`. In v1.1, `ContextBudgetGuard` makes the overflow an explicit `CapacityExceededError` with a defined fallback. |
 | Shell-injection via `shell` tool | `shell=False` with argv list, deny list for obviously destructive commands, 10s default timeout, optional `--max-risk high` only. |
 | Cost runaway | `max_cost_usd` cap (soft) + `max_steps` (hard). Cost is estimated, not exact — over by < 5% for known models. |
+| Provider outage mid-run (v1.1) | `ProviderSelector` (the `AcceleratorEngine`) is invoked again on `RuntimeError`; one retry with a different tier; second failure surfaces as a structured error to the model. Fallback is recorded in `RunTelemetry` and visible in `RunResult.telemetry.fallback_rate`. |
+| policy-driven-compute-service is on disk, not PyPI (v1.1) | Document the `pip install -e <path>` workflow in `README.md` and the spec; publish policy-driven-compute-service to PyPI before tagging taskmaster v1.1. Until then, `[policy]` is "developer-only" and CI does not run `test_runtime_v1_1.py`. |
+| Python 3.10 users install `[policy]` (v1.1) | Lazy import in `agent/policy.py` raises a clear error ("policy extra requires Python 3.11+"); v1 still works on 3.10 unchanged. |
 
-## Open questions (to revisit after v1)
+## Open questions (to revisit after v1.1)
 
 - Streaming output (`--stream` flag) — deferred.
 - Persistent session/state across `run` invocations — deferred.
@@ -405,3 +582,10 @@ Coverage target: ≥ 90% for the new package.
   `compose` engine already gives us static plans, runtime delegation is
   the next step.
 - A web UI on top of the same runtime — natural follow-up.
+- `BatchingController` from policy-driven-compute-service (v1.2+):
+  pack independent skills into one system-prompt block.
+- `Reservation` aggregates (v1.2+): per-step context-token reservations
+  with explicit release.
+- Per-tool force-compress opt-in via `{"_force_compress": true}` —
+  mentioned in the v1 compression section; v1.1 wires the JSON
+  envelope; v1.2 exposes the per-tool flag.
