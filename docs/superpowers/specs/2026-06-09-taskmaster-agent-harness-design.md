@@ -39,11 +39,12 @@ A new package `taskmaster/agent/` with four isolated units:
 | Unit | Responsibility | Depends on |
 |---|---|---|
 | `agent/providers.py` | Abstract `LLMProvider` protocol + `OpenAIProvider`, `AnthropicProvider`, `OllamaProvider`, `EchoProvider`. Returns a uniform `Message` (role, content, tool_calls). | `httpx` (and optional provider SDKs) |
-| `agent/tools.py` | Built-in tool implementations (`read_file`, `list_dir`, `shell`, `install_skill`) and the risk-gated dispatcher. | stdlib + existing `taskmaster.install` |
-| `agent/runtime.py` | The agent loop. Owns skill selection, system-prompt construction, tool-call dispatch, step/cost caps, and final-answer emission. | `providers`, `tools`, existing `recommend`/`compose`/`corpus`/`validation` |
+| `agent/tools.py` | Built-in tool implementations (`read_file`, `list_dir`, `shell`, `install_skill`, `retrieve_context`) and the risk-gated dispatcher. | stdlib + existing `taskmaster.install` + `agent.context_compression` |
+| `agent/context_compression.py` | Thin wrapper over the vendored `taskmaster.context_budget_manager.ContextBudgetManager` that compresses tool outputs before they reach the LLM and exposes retrieval handles. | `taskmaster.context_budget_manager` (already vendored) |
+| `agent/runtime.py` | The agent loop. Owns skill selection, system-prompt construction, tool-call dispatch, step/cost caps, and final-answer emission. | `providers`, `tools`, `context_compression`, existing `recommend`/`compose`/`corpus`/`validation` |
 | `agent/cli.py` | `argparse` shim for the `run` subcommand. | `runtime` |
 
-All four units are importable and testable in isolation. The runtime
+All five units are importable and testable in isolation. The runtime
 never reaches into provider internals — it only consumes the protocol.
 
 ### Boundaries rationale
@@ -54,7 +55,12 @@ never reaches into provider internals — it only consumes the protocol.
 - Tools in their own file → risk gating, audit logging, and tool
   schema definition live in one place; the runtime stays focused on
   loop control.
-- Runtime in its own file → the loop is the most testable unit and
+- Context compression in its own file → the cbm wrapper is the
+  single boundary between the harness and the vendored cbm package,
+  so a future swap (or upgrade of the vendored copy) touches one
+  file. Tools and runtime both depend on this unit, not on cbm
+  directly.
+- Runtime in their own file → the loop is the most testable unit and
   can be exercised with `EchoProvider` + a fake tool layer, no network
   or LLM needed.
 
@@ -75,14 +81,23 @@ max_cost_usd=None, transcript_path=None) -> RunResult`:
         msgs.append(reply)
         append to transcript (if path set)
         if reply has no tool_calls:
-            return RunResult(answer=reply.content, steps=step+1, plan=plan)
+            return RunResult(answer=reply.content, steps=step+1, plan=plan,
+                             compression_stats=compression.summary())
         for call in reply.tool_calls:
-            result = dispatch(call, risk_gate=max_risk)  # may raise
-            msgs.append(tool_result(call.id, result))
-            append to transcript
+            raw_result = dispatch(call, risk_gate=max_risk)
+            compressed = compression.compress_tool_result(call, raw_result)
+            msgs.append(tool_result(call.id, compressed.to_model_text()))
+            append to transcript (compressed.handle, ratio, bytes)
 7.  return RunResult(answer=partial_with_truncation_notice(),
-                     steps=max_steps, plan=plan, truncated=True)
+                     steps=max_steps, plan=plan, truncated=True,
+                     compression_stats=compression.summary())
 ```
+
+`compression.compress_tool_result` is a no-op for short results (below
+`--compress-threshold-chars`, default 1000) and a real cbm compression
+for longer ones. The model always sees a `to_model_text()` string; if
+it later needs the exact original it calls the `retrieve_context`
+tool with the handle.
 
 ### Skill context budget
 
@@ -163,6 +178,7 @@ The CLI never imports a provider SDK unless that provider is requested.
 | `list_dir` | safe | `path: str, glob: str \| None = None` | `{path, entries: [{name, is_dir, size}]}` |
 | `shell` | high | `cmd: str, timeout: int = 10` | `{cmd, exit_code, stdout, stderr, duration_s}`; uses `subprocess.run` with `shell=False` (argv list) and `cwd=pwd`. |
 | `install_skill` | medium | `name: str` | delegates to `taskmaster.install`; returns `{name, status, path}`. |
+| `retrieve_context` | safe | `handle: str, max_chars: int \| None = None` | `{handle, content, truncated}`; delegates to `ContextBudgetManager.retrieve`. |
 
 All tool results are JSON-encoded strings (matching the OpenAI/Anthropic
 tool-result convention). When `transcript_path` is set, every
@@ -171,6 +187,61 @@ tool-result convention). When `transcript_path` is set, every
 
 The tool dispatcher is the only place that enforces risk gating. The
 runtime is intentionally ignorant of risk levels.
+
+## Context compression
+
+`agent/context_compression.py` is a thin wrapper around the already-
+vendored `taskmaster.context_budget_manager.ContextBudgetManager`. It
+exists so the harness has a single, testable boundary against cbm —
+upgrading or swapping the vendored copy later touches one file.
+
+### Public surface
+
+```python
+@dataclass
+class CompressionSummary:
+    total_tool_results: int
+    compressed: int            # how many went through cbm
+    bypassed: int              # below threshold, no compression
+    original_tokens: int
+    compressed_tokens: int
+    saved_tokens: int
+
+class ContextCompression:
+    def __init__(self, *, db_path: Path | None = None,
+                 threshold_chars: int = 1000,
+                 max_chars: int = 4000) -> None: ...
+
+    def compress_tool_result(self, call: ToolCall, raw_text: str) -> CompressedResult: ...
+    def retrieve(self, handle: str) -> str: ...
+    def summary(self) -> CompressionSummary: ...
+```
+
+### Behavior
+
+- `compress_tool_result` is a no-op for tool results shorter than
+  `threshold_chars` — the raw text is passed through, and a
+  `CompressionSummary` counter is incremented under `bypassed`.
+- For longer results, it calls
+  `ContextBudgetManager.compress(raw_text, source_name=call.name)`.
+  The returned `CompressionResult.compressed_text` (which already
+  includes the cbm header with the handle) is what the model sees.
+  The original is stored in cbm's SQLite DB and retrievable later
+  via the `retrieve_context` tool.
+- The `CompressThreshold` is a per-call opt-in: a tool may force
+  compression by returning `{"_force_compress": true}` from its
+  handler. v1 always respects the threshold; per-tool opt-in is a
+  follow-up.
+
+### Why compress tool results (not the whole context)
+
+The model context already consists of small, well-formed messages
+(system, user, assistant, tool-result strings). The expensive part
+is when a tool returns a 200KB JSON dump, a 50KB log, or a 30KB file.
+Compressing only tool results (and only when they're large) is the
+highest-leverage, lowest-risk application of cbm. The skill-selection
+budget on the system prompt side stays deterministic and is handled
+by `runtime.build_system_prompt` as before.
 
 ## CLI surface
 
@@ -205,6 +276,10 @@ taskmaster run "summarize the test failures" \
 | `--max-risk` | `medium` | `safe`, `medium`, `high` |
 | `--max-skill-tokens` | 8000 | system-prompt budget for skill bodies |
 | `--max-cost-usd` | none | soft cap; loop exits with truncation when exceeded |
+| `--compress-threshold-chars` | 1000 | tool results shorter than this are sent to the model as-is |
+| `--compress-max-chars` | 4000 | target size for cbm compression |
+| `--cbm-db` | `<CACHE_DIR>/context.db` | path to cbm's SQLite store |
+| `--no-compress` | false | disable cbm entirely (all tool results pass through) |
 | `--temperature` | 0.0 | passed through to provider |
 | `--transcript` | none | path to append a JSONL trace |
 | `--json` | false | emit `RunResult` as JSON, not prose |
@@ -224,6 +299,14 @@ taskmaster run "summarize the test failures" \
   "estimated_cost_usd": float | None,
   "provider": str,
   "model": str,
+  "compression": {
+    "total_tool_results": int,
+    "compressed": int,
+    "bypassed": int,
+    "original_tokens": int,
+    "compressed_tokens": int,
+    "saved_tokens": int,
+  } | None,
 }
 ```
 
@@ -242,6 +325,12 @@ taskmaster[agent]` adds `httpx`; `pip install taskmaster[anthropic]`
 adds the Anthropic SDK. Providers that are not installed raise a clear
 error at CLI dispatch time ("install with `pip install
 taskmaster[anthropic]`").
+
+`taskmaster.context_budget_manager` is already vendored under the
+`taskmaster` package (no new install step required for compression to
+work). The `[agent]` extra only adds `httpx` for the Ollama provider
+and for cbm's own (optional) HTTP probes; cbm itself runs locally on
+SQLite and has no external dependencies.
 
 ## Testing strategy
 
@@ -262,6 +351,10 @@ write the failing test first, then the implementation.
    - Skill context budget drops the lowest-scored skill first.
    - Final answer extraction when the model emits no tool calls.
    - Transcript JSONL is well-formed when `--transcript` is set.
+   - Compression is applied to long tool results and the model sees
+     the cbm handle; short results pass through unchanged.
+   - `retrieve_context` tool call resolves the handle and returns the
+     original text.
 
 3. **`test_tools.py`** — unit tests for each built-in tool.
    - `read_file` truncation, missing file.
@@ -271,11 +364,23 @@ write the failing test first, then the implementation.
      `shutdown`, `reboot`, `halt`, or contains `> /dev/`; case- and
      whitespace-normalized).
    - `install_skill` delegates to `taskmaster.install`.
+   - `retrieve_context` returns the cbm-stored original; unknown
+     handle returns a structured error.
 
-4. **`test_cli.py`** — `argparse` smoke + `--json` output shape +
+4. **`test_context_compression.py`** — unit tests for the cbm wrapper.
+   - Short result below `threshold_chars` → no cbm call, `bypassed`
+     counter increments.
+   - Long result above threshold → cbm called once, original stored,
+     `compressed_tokens < original_tokens` for the JSON fixture.
+   - `summary()` rolls up the counters correctly across multiple
+     calls.
+   - `--no-compress` makes `compress_tool_result` a pure passthrough
+     and `summary()` returns `None`.
+
+5. **`test_cli.py`** — `argparse` smoke + `--json` output shape +
    provider auto-detect.
 
-5. **Integration** — one end-to-end test gated by `RUN_AGENT_E2E=1`
+6. **Integration** — one end-to-end test gated by `RUN_AGENT_E2E=1`
    that runs the real loop against `EchoProvider` with a tiny skill
    fixture in `tests/fixtures/skills/`. CI does not run this; it's a
    manual/local check.
