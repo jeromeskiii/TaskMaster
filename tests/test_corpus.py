@@ -97,6 +97,42 @@ class TestCorpusIntegration(unittest.TestCase):
             self.assertIsInstance(skill, SkillRecord)
             self.assertTrue(skill.path.endswith("SKILL.md"))
 
+    def test_repository_skills_subdir_precedes_parent_catalog(self):
+        package_src = Path(__file__).resolve().parent.parent / "taskmaster"
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_dir = Path(tmp)
+            repo_dir = workspace_dir / "repo"
+            skills_dir = repo_dir / "skills"
+            shutil.copytree(
+                package_src,
+                repo_dir / "taskmaster",
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            (skills_dir / "repo-skill").mkdir(parents=True)
+            (skills_dir / "repo-skill" / "SKILL.md").write_text("# Repo skill\n", encoding="utf-8")
+            (workspace_dir / "sibling-skill").mkdir()
+            (workspace_dir / "sibling-skill" / "SKILL.md").write_text(
+                "# Sibling skill\n",
+                encoding="utf-8",
+            )
+
+            env = {key: value for key, value in os.environ.items() if key != "TASKMASTER_SKILLS_DIR"}
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import taskmaster.corpus as c; print(c.SKILLS_DIR)",
+                ],
+                cwd=repo_dir,
+                env={**env, "PYTHONPATH": str(repo_dir)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(result.stdout.strip()).resolve(), skills_dir.resolve())
+
     def test_installed_package_uses_catalog_working_directory(self):
         package_src = Path(__file__).resolve().parent.parent / "taskmaster"
         with tempfile.TemporaryDirectory() as tmp:

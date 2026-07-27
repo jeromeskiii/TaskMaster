@@ -4,17 +4,23 @@
  *
  * Usage:
  *   # Quick answer (display in chat, no file saved)
- *   node --env-file=.env scripts/run_actor.js --actor ACTOR_ID --input '{}'
+ *   node --env-file=.env scripts/run_actor.js --actor ACTOR_ID --input '{}' \
+ *     --max-items "$MAX_ITEMS" --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD"
  *
  *   # Export to file
- *   node --env-file=.env scripts/run_actor.js --actor ACTOR_ID --input '{}' --output leads.csv --format csv
+ *   node --env-file=.env scripts/run_actor.js --actor ACTOR_ID --input '{}' \
+ *     --max-items "$MAX_ITEMS" --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
+ *     --output leads.csv --format csv
  */
 
 import { parseArgs } from 'node:util';
-import { writeFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 
 // User-Agent for tracking skill usage in Apify analytics
 const USER_AGENT = 'apify-agent-skills/apify-lead-generation-1.1.11';
+const ACTOR_ID_PATTERN =
+    /^(?:[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*|[A-Za-z0-9]{17})$/u;
+const OUTPUT_FORMATS = new Set(['csv', 'json']);
 
 // Parse command-line arguments
 function parseCliArgs() {
@@ -25,6 +31,8 @@ function parseCliArgs() {
         format: { type: 'string', short: 'f', default: 'csv' },
         timeout: { type: 'string', short: 't', default: '600' },
         'poll-interval': { type: 'string', default: '5' },
+        'max-items': { type: 'string' },
+        'max-total-charge-usd': { type: 'string' },
         help: { type: 'boolean', short: 'h' },
     };
 
@@ -47,14 +55,58 @@ function parseCliArgs() {
         process.exit(1);
     }
 
+    if (!ACTOR_ID_PATTERN.test(values.actor)) {
+        console.error('Error: --actor must be an owner/name or a 17-character Actor ID');
+        process.exit(1);
+    }
+
+    if (!values['max-items']) {
+        console.error('Error: --max-items is required');
+        process.exit(1);
+    }
+
+    if (!values['max-total-charge-usd']) {
+        console.error('Error: --max-total-charge-usd is required');
+        process.exit(1);
+    }
+
+    const format = values.format || 'csv';
+    if (!OUTPUT_FORMATS.has(format)) {
+        console.error('Error: --format must be csv or json');
+        process.exit(1);
+    }
+
     return {
         actor: values.actor,
         input: values.input,
         output: values.output,
-        format: values.format || 'csv',
-        timeout: parseInt(values.timeout, 10),
-        pollInterval: parseInt(values['poll-interval'], 10),
+        format,
+        timeout: parsePositiveInteger(values.timeout, '--timeout'),
+        pollInterval: parsePositiveInteger(values['poll-interval'], '--poll-interval'),
+        maxItems: parsePositiveInteger(values['max-items'], '--max-items'),
+        maxTotalChargeUsd: parsePositiveNumber(
+            values['max-total-charge-usd'],
+            '--max-total-charge-usd',
+        ),
     };
+}
+
+function parsePositiveInteger(value, option) {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+        console.error(`Error: ${option} must be a positive integer`);
+        process.exit(1);
+    }
+    return parsed;
+}
+
+function parsePositiveNumber(value, option) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        console.error(`Error: ${option} must be a positive number`);
+        process.exit(1);
+    }
+    return parsed;
 }
 
 function printHelp() {
@@ -62,16 +114,19 @@ function printHelp() {
 Apify Actor Runner - Run Apify actors and export results
 
 Usage:
-  node --env-file=.env scripts/run_actor.js --actor ACTOR_ID --input '{}'
+  node --env-file=.env scripts/run_actor.js --actor ACTOR_ID --input '{}' \\
+    --max-items "$MAX_ITEMS" --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD"
 
 Options:
-  --actor, -a       Actor ID (e.g., compass/crawler-google-places) [required]
-  --input, -i       Actor input as JSON string [required]
-  --output, -o      Output file path (optional - if not provided, displays quick answer)
-  --format, -f      Output format: csv, json (default: csv)
-  --timeout, -t     Max wait time in seconds (default: 600)
-  --poll-interval   Seconds between status checks (default: 5)
-  --help, -h        Show this help message
+  --actor, -a                 Actor ID (e.g., compass/crawler-google-places) [required]
+  --input, -i                 Actor input as JSON string [required]
+  --max-items                 Whole-run charged item cap [required]
+  --max-total-charge-usd      Whole-run charge cap in USD [required]
+  --output, -o                Output file path (optional - displays quick answer if omitted)
+  --format, -f                Output format: csv, json (default: csv)
+  --timeout, -t               Max wait time in seconds (default: 600)
+  --poll-interval             Seconds between status checks (default: 5)
+  --help, -h                  Show this help message
 
 Output Formats:
   JSON (all data)     --output file.json --format json
@@ -82,21 +137,29 @@ Examples:
   # Quick answer - display top 5 in chat
   node --env-file=.env scripts/run_actor.js \\
     --actor "compass/crawler-google-places" \\
-    --input '{"searchStringsArray": ["coffee shops"], "locationQuery": "Seattle, USA"}'
+    --input '{"searchStringsArray": ["coffee shops"], "locationQuery": "Seattle, USA"}' \\
+    --max-items "$MAX_ITEMS" \\
+    --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD"
 
   # Export all data to CSV
   node --env-file=.env scripts/run_actor.js \\
     --actor "compass/crawler-google-places" \\
     --input '{"searchStringsArray": ["coffee shops"], "locationQuery": "Seattle, USA"}' \\
+    --max-items "$MAX_ITEMS" \\
+    --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \\
     --output leads.csv --format csv
 `);
 }
 
 // Start an actor run and return { runId, datasetId }
-async function startActor(token, actorId, inputJson) {
+async function startActor(token, actorId, inputJson, maxItems, maxTotalChargeUsd) {
     // Convert "author/actor" format to "author~actor" for API compatibility
     const apiActorId = actorId.replace('/', '~');
-    const url = `https://api.apify.com/v2/acts/${apiActorId}/runs?token=${encodeURIComponent(token)}`;
+    const params = new URLSearchParams({
+        maxItems: String(maxItems),
+        maxTotalChargeUsd: String(maxTotalChargeUsd),
+    });
+    const url = `https://api.apify.com/v2/acts/${apiActorId}/runs?${params}`;
 
     let data;
     try {
@@ -109,6 +172,7 @@ async function startActor(token, actorId, inputJson) {
     const response = await fetch(url, {
         method: 'POST',
         headers: {
+            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
             'User-Agent': `${USER_AGENT}/start_actor`,
         },
@@ -135,12 +199,17 @@ async function startActor(token, actorId, inputJson) {
 
 // Poll run status until complete or timeout
 async function pollUntilComplete(token, runId, timeout, interval) {
-    const url = `https://api.apify.com/v2/actor-runs/${runId}?token=${encodeURIComponent(token)}`;
+    const url = `https://api.apify.com/v2/actor-runs/${runId}`;
     const startTime = Date.now();
     let lastStatus = null;
 
     while (true) {
-        const response = await fetch(url);
+        const response = await fetch(url, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'User-Agent': `${USER_AGENT}/poll_run`,
+            },
+        });
         if (!response.ok) {
             const text = await response.text();
             console.error(`Error: Failed to get run status: ${text}`);
@@ -171,11 +240,12 @@ async function pollUntilComplete(token, runId, timeout, interval) {
 }
 
 // Download dataset items
-async function downloadResults(token, datasetId, outputPath, format) {
-    const url = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${encodeURIComponent(token)}&format=json`;
+async function downloadResults(token, datasetId, outputPath, format, maxItems) {
+    const url = `https://api.apify.com/v2/datasets/${datasetId}/items?format=json&limit=${maxItems}`;
 
     const response = await fetch(url, {
         headers: {
+            Authorization: `Bearer ${token}`,
             'User-Agent': `${USER_AGENT}/download_${format}`,
         },
     });
@@ -230,11 +300,12 @@ async function downloadResults(token, datasetId, outputPath, format) {
 }
 
 // Display top 5 results in chat format
-async function displayQuickAnswer(token, datasetId) {
-    const url = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${encodeURIComponent(token)}&format=json`;
+async function displayQuickAnswer(token, datasetId, maxItems) {
+    const url = `https://api.apify.com/v2/datasets/${datasetId}/items?format=json&limit=${maxItems}`;
 
     const response = await fetch(url, {
         headers: {
+            Authorization: `Bearer ${token}`,
             'User-Agent': `${USER_AGENT}/quick_answer`,
         },
     });
@@ -292,7 +363,7 @@ function reportSummary(outputPath, format) {
 
     let count;
     try {
-        const content = require('fs').readFileSync(outputPath, 'utf-8');
+        const content = readFileSync(outputPath, 'utf-8');
         if (format === 'json') {
             const data = JSON.parse(content);
             count = Array.isArray(data) ? data.length : 1;
@@ -333,7 +404,13 @@ async function main() {
 
     // Start the actor run
     console.log(`Starting actor: ${args.actor}`);
-    const { runId, datasetId } = await startActor(token, args.actor, args.input);
+    const { runId, datasetId } = await startActor(
+        token,
+        args.actor,
+        args.input,
+        args.maxItems,
+        args.maxTotalChargeUsd,
+    );
     console.log(`Run ID: ${runId}`);
     console.log(`Dataset ID: ${datasetId}`);
 
@@ -349,11 +426,11 @@ async function main() {
     // Determine output mode
     if (args.output) {
         // File output mode
-        await downloadResults(token, datasetId, args.output, args.format);
+        await downloadResults(token, datasetId, args.output, args.format, args.maxItems);
         reportSummary(args.output, args.format);
     } else {
         // Quick answer mode - display in chat
-        await displayQuickAnswer(token, datasetId);
+        await displayQuickAnswer(token, datasetId, args.maxItems);
     }
 }
 

@@ -59,13 +59,46 @@ Select the appropriate Actor based on research needs:
 | Product launch research | `apify/instagram-api-scraper` | API access |
 | Hospitality market | `voyager/booking-scraper` | Hotel data |
 | Tourism insights | `maxcopell/tripadvisor-reviews` | Review analysis |
+| X conversations and creators | [`xquik/x-tweet-scraper`](https://apify.com/xquik/x-tweet-scraper) | Search, timelines, threads, and engagement |
+| X audience segments | [`xquik/x-follower-scraper`](https://apify.com/xquik/x-follower-scraper) | Followers, following, lists, and communities |
+
+#### Xquik Actor Inputs
+
+Check each Actor's live pricing and input schema before use.
+
+- X Tweet Scraper supports `legacy`, `tweet`, `tweets`, `search`,
+  `profileTweets`, `profileReplies`, `profileMedia`, `profileLikes`,
+  `listTweets`, `article`, `replies`, `quotes`, `thread`, `retweeters`, and
+  `favoriters`.
+- Use the matching target field for explicit modes. Common fields include
+  `twitterHandles`, `tweetIds`, `tweetUrls`, `profileUrls`, `listIds`,
+  `articleTweetIds`, `replyTweetIds`, `quoteTweetIds`, `threadTweetIds`,
+  `retweeterTweetIds`, and `favoriterTweetIds`.
+- X Follower Scraper supports `followers`, `following`,
+  `verified_followers`, `list_members`, `list_followers`, and
+  `community_members`. Use `twitterHandles`, `listIds`, `communityIds`, or
+  supported X URLs as targets.
+- Set `maxItems` in the Actor input. Use `maxItemsPerTarget` for explicit
+  multi-target routes. Use `overlapMode` to merge duplicate audience profiles
+  while retaining their source targets.
+
+Tweet output supports `legacy`, `rich`, and `raw` variants; `legacy`,
+`camelCase`, and `snake_case` field styles; and `nested` or `flat` presets.
+Follower output supports `compact`, `full`, and `raw` modes. Its dedupe modes
+are `none`, `first`, and `merge` through `dedupeMode`. Use
+`includeTargetMetadata: true` for audience provenance.
+
+Xquik is an independent third-party service. Not affiliated with X Corp.
+"Twitter" and "X" are trademarks of X Corp.
 
 ### Step 2: Fetch Actor Schema
 
-Fetch the Actor's input schema and details dynamically using mcpc:
+Fetch the Actor's input schema, details, and live pricing using mcpc. Set
+`APIFY_TOKEN` in the current environment without printing it:
 
 ```bash
-export $(grep APIFY_TOKEN .env | xargs) && mcpc --json mcp.apify.com --header "Authorization: Bearer $APIFY_TOKEN" tools-call fetch-actor-details actor:="ACTOR_ID" | jq -r ".content"
+: "${APIFY_TOKEN:?Set APIFY_TOKEN before using mcpc}"
+mcpc --json mcp.apify.com --header "Authorization: Bearer $APIFY_TOKEN" tools-call fetch-actor-details actor:="ACTOR_ID" | jq -r ".content"
 ```
 
 Replace `ACTOR_ID` with the selected Actor (e.g., `compass/crawler-google-places`).
@@ -82,7 +115,16 @@ Before running, ask:
    - **Quick answer** - Display top few results in chat (no file saved)
    - **CSV** - Full export with all fields
    - **JSON** - Full export in JSON format
-2. **Number of results**: Based on character of use case
+2. **Number of results**: Set a whole-run item cap.
+3. **Maximum charge**: Show the live price and get explicit approval for a
+   whole-run USD cap. Never infer a price from this file.
+
+Set both approved caps before running:
+
+```bash
+: "${MAX_ITEMS:?Set a user-approved whole-run item cap}"
+: "${MAX_TOTAL_CHARGE_USD:?Set a user-approved whole-run charge cap}"
+```
 
 ### Step 4: Run the Script
 
@@ -90,7 +132,9 @@ Before running, ask:
 ```bash
 node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
   --actor "ACTOR_ID" \
-  --input 'JSON_INPUT'
+  --input 'JSON_INPUT' \
+  --max-items "$MAX_ITEMS" \
+  --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD"
 ```
 
 **CSV:**
@@ -98,6 +142,8 @@ node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
 node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
   --actor "ACTOR_ID" \
   --input 'JSON_INPUT' \
+  --max-items "$MAX_ITEMS" \
+  --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
   --output YYYY-MM-DD_OUTPUT_FILE.csv \
   --format csv
 ```
@@ -107,6 +153,8 @@ node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
 node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
   --actor "ACTOR_ID" \
   --input 'JSON_INPUT' \
+  --max-items "$MAX_ITEMS" \
+  --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
   --output YYYY-MM-DD_OUTPUT_FILE.json \
   --format json
 ```
