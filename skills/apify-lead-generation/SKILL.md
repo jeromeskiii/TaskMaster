@@ -58,13 +58,46 @@ Select the appropriate Actor based on user needs:
 | Google Search | `apify/google-search-scraper` | Broad lead discovery |
 | YouTube channels | `streamers/youtube-scraper` | Creator partnerships |
 | Google Maps emails | `poidata/google-maps-email-extractor` | Direct email extraction |
+| X posts and creators | [`xquik/x-tweet-scraper`](https://apify.com/xquik/x-tweet-scraper) | Search, timelines, threads, and engagement |
+| X audiences | [`xquik/x-follower-scraper`](https://apify.com/xquik/x-follower-scraper) | Followers, following, lists, and communities |
+
+#### Xquik Actor Inputs
+
+Check each Actor's live pricing and input schema before use.
+
+- X Tweet Scraper supports `legacy`, `tweet`, `tweets`, `search`,
+  `profileTweets`, `profileReplies`, `profileMedia`, `profileLikes`,
+  `listTweets`, `article`, `replies`, `quotes`, `thread`, `retweeters`, and
+  `favoriters`.
+- Use the matching target field for explicit modes. Common fields include
+  `twitterHandles`, `tweetIds`, `tweetUrls`, `profileUrls`, `listIds`,
+  `articleTweetIds`, `replyTweetIds`, `quoteTweetIds`, `threadTweetIds`,
+  `retweeterTweetIds`, and `favoriterTweetIds`.
+- X Follower Scraper supports `followers`, `following`,
+  `verified_followers`, `list_members`, `list_followers`, and
+  `community_members`. Use `twitterHandles`, `listIds`, `communityIds`, or
+  supported X URLs as targets.
+- Set `maxItems` in the Actor input. Use `maxItemsPerTarget` for explicit
+  multi-target routes. Use `overlapMode` to merge duplicate audience profiles
+  while retaining their source targets.
+
+Tweet output supports `legacy`, `rich`, and `raw` variants; `legacy`,
+`camelCase`, and `snake_case` field styles; and `nested` or `flat` presets.
+Follower output supports `compact`, `full`, and `raw` modes. Its dedupe modes
+are `none`, `first`, and `merge` through `dedupeMode`. Use
+`includeTargetMetadata: true` for audience provenance.
+
+Xquik is an independent third-party service. Not affiliated with X Corp.
+"Twitter" and "X" are trademarks of X Corp.
 
 ### Step 2: Fetch Actor Schema
 
-Fetch the Actor's input schema and details dynamically using mcpc:
+Fetch the Actor's input schema, details, and live pricing using mcpc. Set
+`APIFY_TOKEN` in the current environment without printing it:
 
 ```bash
-export $(grep APIFY_TOKEN .env | xargs) && mcpc --json mcp.apify.com --header "Authorization: Bearer $APIFY_TOKEN" tools-call fetch-actor-details actor:="ACTOR_ID" | jq -r ".content"
+: "${APIFY_TOKEN:?Set APIFY_TOKEN before using mcpc}"
+mcpc --json mcp.apify.com --header "Authorization: Bearer $APIFY_TOKEN" tools-call fetch-actor-details actor:="ACTOR_ID" | jq -r ".content"
 ```
 
 Replace `ACTOR_ID` with the selected Actor (e.g., `compass/crawler-google-places`).
@@ -81,15 +114,30 @@ Before running, ask:
    - **Quick answer** - Display top few results in chat (no file saved)
    - **CSV** - Full export with all fields
    - **JSON** - Full export in JSON format
-2. **Number of results**: Based on character of use case
+2. **Number of results**: Bound the Actor input and downloaded row count.
+3. **Run ceiling**: Check live pricing and select exactly one supported cap.
+   Use `maxItems` for pay-per-result or `maxTotalChargeUsd` for pay-per-event.
+
+Both Xquik Actors currently use pay-per-event pricing. Set an approved charge
+ceiling and download limit before running them:
+
+```bash
+: "${MAX_TOTAL_CHARGE_USD:?Set a user-approved whole-run charge cap}"
+: "${MAX_DOWNLOAD_ITEMS:?Set a user-approved download limit}"
+```
 
 ### Step 4: Run the Script
+
+The Xquik commands below use their current pay-per-event ceiling. For a
+pay-per-result Actor, replace `--max-total-charge-usd` with `--max-items`.
 
 **Quick answer (display in chat, no file):**
 ```bash
 node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
   --actor "ACTOR_ID" \
-  --input 'JSON_INPUT'
+  --input 'JSON_INPUT' \
+  --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
+  --download-limit "$MAX_DOWNLOAD_ITEMS"
 ```
 
 **CSV:**
@@ -97,6 +145,8 @@ node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
 node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
   --actor "ACTOR_ID" \
   --input 'JSON_INPUT' \
+  --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
+  --download-limit "$MAX_DOWNLOAD_ITEMS" \
   --output YYYY-MM-DD_OUTPUT_FILE.csv \
   --format csv
 ```
@@ -106,6 +156,8 @@ node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
 node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
   --actor "ACTOR_ID" \
   --input 'JSON_INPUT' \
+  --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
+  --download-limit "$MAX_DOWNLOAD_ITEMS" \
   --output YYYY-MM-DD_OUTPUT_FILE.json \
   --format json
 ```

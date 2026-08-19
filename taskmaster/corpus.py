@@ -37,6 +37,9 @@ def _resolve_root() -> Path:
         return Path(configured).expanduser().resolve()
 
     cwd = Path.cwd().resolve()
+    if _has_skill_catalog(cwd / "skills"):
+        return cwd
+
     catalog_root = _find_catalog_root(cwd)
     if catalog_root is not None:
         return catalog_root

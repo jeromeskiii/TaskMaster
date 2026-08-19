@@ -28,6 +28,7 @@ jobs:
       - name: Run tests
         run: |
           python3 -m unittest \
+            tests.test_apify_actor_runners \
             tests.test_ci_workflow \
             tests.test_cli \
             tests.test_corpus \
