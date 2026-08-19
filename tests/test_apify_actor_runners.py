@@ -51,6 +51,7 @@ class ApifyActorRunnerTests(unittest.TestCase):
                 self.assertEqual(help_result.returncode, 0, help_result.stderr)
                 self.assertIn("--max-items", help_result.stdout)
                 self.assertIn("--max-total-charge-usd", help_result.stdout)
+                self.assertIn("--download-limit", help_result.stdout)
 
     def test_runners_reject_unsafe_actor_ids_before_network_access(self) -> None:
         for runner in RUNNERS:
@@ -61,10 +62,10 @@ class ApifyActorRunnerTests(unittest.TestCase):
                     "xquik/x-tweet-scraper?token=leak",
                     "--input",
                     "{}",
-                    "--max-items",
-                    "10",
                     "--max-total-charge-usd",
                     "1",
+                    "--download-limit",
+                    "10",
                 )
                 self.assertEqual(result.returncode, 1)
                 self.assertIn("--actor must be", result.stderr)
@@ -80,8 +81,8 @@ class ApifyActorRunnerTests(unittest.TestCase):
                     "{}",
                     "--max-items",
                     "0",
-                    "--max-total-charge-usd",
-                    "1",
+                    "--download-limit",
+                    "10",
                 )
                 self.assertEqual(invalid_items.returncode, 1)
                 self.assertIn("--max-items must be a positive integer", invalid_items.stderr)
@@ -92,10 +93,10 @@ class ApifyActorRunnerTests(unittest.TestCase):
                     "xquik/x-follower-scraper",
                     "--input",
                     "{}",
-                    "--max-items",
-                    "10",
                     "--max-total-charge-usd",
                     "not-a-number",
+                    "--download-limit",
+                    "10",
                 )
                 self.assertEqual(invalid_charge.returncode, 1)
                 self.assertIn(
@@ -103,12 +104,73 @@ class ApifyActorRunnerTests(unittest.TestCase):
                     invalid_charge.stderr,
                 )
 
+                conflicting_caps = self.run_runner(
+                    runner,
+                    "--actor",
+                    "xquik/x-tweet-scraper",
+                    "--input",
+                    "{}",
+                    "--max-items",
+                    "10",
+                    "--max-total-charge-usd",
+                    "1",
+                    "--download-limit",
+                    "10",
+                )
+                self.assertEqual(conflicting_caps.returncode, 1)
+                self.assertIn("exactly one pricing-specific", conflicting_caps.stderr)
+
+                invalid_download = self.run_runner(
+                    runner,
+                    "--actor",
+                    "xquik/x-follower-scraper",
+                    "--input",
+                    "{}",
+                    "--max-total-charge-usd",
+                    "1",
+                    "--download-limit",
+                    "0",
+                )
+                self.assertEqual(invalid_download.returncode, 1)
+                self.assertIn(
+                    "--download-limit must be a positive integer",
+                    invalid_download.stderr,
+                )
+
+                missing_cap = self.run_runner(
+                    runner,
+                    "--actor",
+                    "xquik/x-tweet-scraper",
+                    "--input",
+                    "{}",
+                    "--download-limit",
+                    "10",
+                )
+                self.assertEqual(missing_cap.returncode, 1)
+                self.assertIn("exactly one pricing-specific", missing_cap.stderr)
+
+                unsafe_integer = self.run_runner(
+                    runner,
+                    "--actor",
+                    "xquik/x-tweet-scraper",
+                    "--input",
+                    "{}",
+                    "--max-items",
+                    str(2**53),
+                    "--download-limit",
+                    "10",
+                )
+                self.assertEqual(unsafe_integer.returncode, 1)
+                self.assertIn("--max-items must be a positive integer", unsafe_integer.stderr)
+
     def test_runners_use_bearer_auth_instead_of_token_urls(self) -> None:
         for runner in RUNNERS:
             with self.subTest(runner=runner):
                 source = runner.read_text(encoding="utf-8")
                 self.assertNotIn("?token=", source)
                 self.assertIn("Authorization: `Bearer ${token}`", source)
+                self.assertIn("Object.entries(runCap)", source)
+                self.assertNotIn("maxItems: String(maxItems)", source)
 
     def test_runner_implementations_stay_in_sync(self) -> None:
         sources = [
@@ -136,6 +198,8 @@ class ApifyActorRunnerTests(unittest.TestCase):
                 content = skill_file.read_text(encoding="utf-8")
                 for value in expected_values:
                     self.assertIn(value, content)
+                self.assertIn("select exactly one supported cap", content)
+                self.assertNotIn("Set both approved caps", content)
                 self.assertNotIn("xquik.com", content)
 
 

@@ -114,26 +114,30 @@ Before running, ask:
    - **Quick answer** - Display top few results in chat (no file saved)
    - **CSV** - Full export with all fields
    - **JSON** - Full export in JSON format
-2. **Number of results**: Set a whole-run item cap.
-3. **Maximum charge**: Show the live price and get explicit approval for a
-   whole-run USD cap. Never infer a price from this file.
+2. **Number of results**: Bound the Actor input and downloaded row count.
+3. **Run ceiling**: Check live pricing and select exactly one supported cap.
+   Use `maxItems` for pay-per-result or `maxTotalChargeUsd` for pay-per-event.
 
-Set both approved caps before running:
+Both Xquik Actors currently use pay-per-event pricing. Set an approved charge
+ceiling and download limit before running them:
 
 ```bash
-: "${MAX_ITEMS:?Set a user-approved whole-run item cap}"
 : "${MAX_TOTAL_CHARGE_USD:?Set a user-approved whole-run charge cap}"
+: "${MAX_DOWNLOAD_ITEMS:?Set a user-approved download limit}"
 ```
 
 ### Step 4: Run the Script
+
+The Xquik commands below use their current pay-per-event ceiling. For a
+pay-per-result Actor, replace `--max-total-charge-usd` with `--max-items`.
 
 **Quick answer (display in chat, no file):**
 ```bash
 node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
   --actor "ACTOR_ID" \
   --input 'JSON_INPUT' \
-  --max-items "$MAX_ITEMS" \
-  --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD"
+  --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
+  --download-limit "$MAX_DOWNLOAD_ITEMS"
 ```
 
 **CSV:**
@@ -141,8 +145,8 @@ node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
 node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
   --actor "ACTOR_ID" \
   --input 'JSON_INPUT' \
-  --max-items "$MAX_ITEMS" \
   --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
+  --download-limit "$MAX_DOWNLOAD_ITEMS" \
   --output YYYY-MM-DD_OUTPUT_FILE.csv \
   --format csv
 ```
@@ -152,8 +156,8 @@ node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
 node --env-file=.env ${CLAUDE_PLUGIN_ROOT}/reference/scripts/run_actor.js \
   --actor "ACTOR_ID" \
   --input 'JSON_INPUT' \
-  --max-items "$MAX_ITEMS" \
   --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
+  --download-limit "$MAX_DOWNLOAD_ITEMS" \
   --output YYYY-MM-DD_OUTPUT_FILE.json \
   --format json
 ```

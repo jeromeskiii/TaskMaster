@@ -5,11 +5,13 @@
  * Usage:
  *   # Quick answer (display in chat, no file saved)
  *   node --env-file=.env scripts/run_actor.js --actor ACTOR_ID --input '{}' \
- *     --max-items "$MAX_ITEMS" --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD"
+ *     --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
+ *     --download-limit "$MAX_DOWNLOAD_ITEMS"
  *
  *   # Export to file
  *   node --env-file=.env scripts/run_actor.js --actor ACTOR_ID --input '{}' \
- *     --max-items "$MAX_ITEMS" --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
+ *     --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \
+ *     --download-limit "$MAX_DOWNLOAD_ITEMS" \
  *     --output leads.csv --format csv
  */
 
@@ -33,6 +35,7 @@ function parseCliArgs() {
         'poll-interval': { type: 'string', default: '5' },
         'max-items': { type: 'string' },
         'max-total-charge-usd': { type: 'string' },
+        'download-limit': { type: 'string' },
         help: { type: 'boolean', short: 'h' },
     };
 
@@ -60,13 +63,15 @@ function parseCliArgs() {
         process.exit(1);
     }
 
-    if (!values['max-items']) {
-        console.error('Error: --max-items is required');
+    const hasMaxItems = values['max-items'] !== undefined;
+    const hasMaxCharge = values['max-total-charge-usd'] !== undefined;
+    if (hasMaxItems === hasMaxCharge) {
+        console.error('Error: set exactly one pricing-specific run cap');
         process.exit(1);
     }
 
-    if (!values['max-total-charge-usd']) {
-        console.error('Error: --max-total-charge-usd is required');
+    if (values['download-limit'] === undefined) {
+        console.error('Error: --download-limit is required');
         process.exit(1);
     }
 
@@ -83,17 +88,21 @@ function parseCliArgs() {
         format,
         timeout: parsePositiveInteger(values.timeout, '--timeout'),
         pollInterval: parsePositiveInteger(values['poll-interval'], '--poll-interval'),
-        maxItems: parsePositiveInteger(values['max-items'], '--max-items'),
-        maxTotalChargeUsd: parsePositiveNumber(
-            values['max-total-charge-usd'],
-            '--max-total-charge-usd',
-        ),
+        runCap: hasMaxItems
+            ? { maxItems: parsePositiveInteger(values['max-items'], '--max-items') }
+            : {
+                maxTotalChargeUsd: parsePositiveNumber(
+                    values['max-total-charge-usd'],
+                    '--max-total-charge-usd',
+                ),
+            },
+        downloadLimit: parsePositiveInteger(values['download-limit'], '--download-limit'),
     };
 }
 
 function parsePositiveInteger(value, option) {
     const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
         console.error(`Error: ${option} must be a positive integer`);
         process.exit(1);
     }
@@ -115,13 +124,15 @@ Apify Actor Runner - Run Apify actors and export results
 
 Usage:
   node --env-file=.env scripts/run_actor.js --actor ACTOR_ID --input '{}' \\
-    --max-items "$MAX_ITEMS" --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD"
+    --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \\
+    --download-limit "$MAX_DOWNLOAD_ITEMS"
 
 Options:
   --actor, -a                 Actor ID (e.g., compass/crawler-google-places) [required]
   --input, -i                 Actor input as JSON string [required]
-  --max-items                 Whole-run charged item cap [required]
-  --max-total-charge-usd      Whole-run charge cap in USD [required]
+  --max-items                 Charged item cap for pay-per-result Actors
+  --max-total-charge-usd      Charge cap for pay-per-event Actors
+  --download-limit            Maximum dataset rows to fetch [required]
   --output, -o                Output file path (optional - displays quick answer if omitted)
   --format, -f                Output format: csv, json (default: csv)
   --timeout, -t               Max wait time in seconds (default: 600)
@@ -138,27 +149,27 @@ Examples:
   node --env-file=.env scripts/run_actor.js \\
     --actor "compass/crawler-google-places" \\
     --input '{"searchStringsArray": ["coffee shops"], "locationQuery": "Seattle, USA"}' \\
-    --max-items "$MAX_ITEMS" \\
-    --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD"
+    --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \\
+    --download-limit "$MAX_DOWNLOAD_ITEMS"
 
   # Export all data to CSV
   node --env-file=.env scripts/run_actor.js \\
     --actor "compass/crawler-google-places" \\
     --input '{"searchStringsArray": ["coffee shops"], "locationQuery": "Seattle, USA"}' \\
-    --max-items "$MAX_ITEMS" \\
     --max-total-charge-usd "$MAX_TOTAL_CHARGE_USD" \\
+    --download-limit "$MAX_DOWNLOAD_ITEMS" \\
     --output leads.csv --format csv
 `);
 }
 
 // Start an actor run and return { runId, datasetId }
-async function startActor(token, actorId, inputJson, maxItems, maxTotalChargeUsd) {
+async function startActor(token, actorId, inputJson, runCap) {
     // Convert "author/actor" format to "author~actor" for API compatibility
     const apiActorId = actorId.replace('/', '~');
-    const params = new URLSearchParams({
-        maxItems: String(maxItems),
-        maxTotalChargeUsd: String(maxTotalChargeUsd),
-    });
+    const params = new URLSearchParams();
+    for (const [name, value] of Object.entries(runCap)) {
+        params.set(name, String(value));
+    }
     const url = `https://api.apify.com/v2/acts/${apiActorId}/runs?${params}`;
 
     let data;
@@ -408,8 +419,7 @@ async function main() {
         token,
         args.actor,
         args.input,
-        args.maxItems,
-        args.maxTotalChargeUsd,
+        args.runCap,
     );
     console.log(`Run ID: ${runId}`);
     console.log(`Dataset ID: ${datasetId}`);
@@ -426,11 +436,11 @@ async function main() {
     // Determine output mode
     if (args.output) {
         // File output mode
-        await downloadResults(token, datasetId, args.output, args.format, args.maxItems);
+        await downloadResults(token, datasetId, args.output, args.format, args.downloadLimit);
         reportSummary(args.output, args.format);
     } else {
         // Quick answer mode - display in chat
-        await displayQuickAnswer(token, datasetId, args.maxItems);
+        await displayQuickAnswer(token, datasetId, args.downloadLimit);
     }
 }
 
